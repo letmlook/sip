@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
 use siprs_core::{TransportError, TransportProtocol};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener as TokioTcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{
@@ -28,26 +29,33 @@ use tokio_tungstenite::{
         handshake::server::{Request, Response},
         protocol::Message,
     },
-    MaybeTlsStream, WebSocketStream,
+    WebSocketStream,
 };
 use tracing;
 
 use crate::traits::{ReceivedMessage, TransportEvent};
 
+/// 客户端 WebSocket 写入流类型别名（用于连接池）
+pub type ClientWsWriteStream =
+    WsWriteStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// 服务端 WebSocket 写入流类型别名
+pub type ServerWsWriteStream = WsWriteStream<tokio::net::TcpStream>;
+
 // ============================================================================
 // WsReadStream - WebSocket 读取流
 // ============================================================================
 
-/// WebSocket 读取流
+/// WebSocket 读取流（泛型版本）
 ///
 /// 持有 WebSocket 流的读取半部分，用于接收循环中读取消息。
 /// 由 `WsConnection::into_split()` 产生。
-pub struct WsReadStream {
-    stream: futures::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>,
+pub struct WsReadStream<S> {
+    stream: futures::stream::SplitStream<WebSocketStream<S>>,
     peer_addr: SocketAddr,
 }
 
-impl WsReadStream {
+impl<S: AsyncRead + AsyncWrite + Unpin> WsReadStream<S> {
     /// 启动 WebSocket 连接的接收循环
     ///
     /// 从 WebSocket 流中持续读取文本消息，解析后通过事件通道发送。
@@ -158,19 +166,16 @@ impl WsReadStream {
 // WsWriteStream - WebSocket 写入流
 // ============================================================================
 
-/// WebSocket 写入流
+/// WebSocket 写入流（泛型版本）
 ///
 /// 持有 WebSocket 流的写入半部分，用于发送消息。
 /// 由 `WsConnection::into_split()` 产生，存储在连接池中。
-pub struct WsWriteStream {
-    sink: futures::stream::SplitSink<
-        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
-        Message,
-    >,
+pub struct WsWriteStream<S> {
+    sink: futures::stream::SplitSink<WebSocketStream<S>, Message>,
     peer_addr: SocketAddr,
 }
 
-impl WsWriteStream {
+impl<S: AsyncRead + AsyncWrite + Unpin> WsWriteStream<S> {
     /// 获取对端地址
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
@@ -224,7 +229,7 @@ impl WsWriteStream {
 }
 
 // ============================================================================
-// WsConnection - WebSocket 连接（临时，用于创建后立即拆分）
+// WsConnection - WebSocket 连接（泛型版本）
 // ============================================================================
 
 /// WebSocket 连接
@@ -233,12 +238,14 @@ impl WsWriteStream {
 /// 基于 RFC 7118 的 SIP 消息传输。
 ///
 /// 创建后应立即调用 `into_split()` 拆分为读写两半。
-pub struct WsConnection {
-    stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+pub struct WsConnection<S> {
+    stream: WebSocketStream<S>,
     peer_addr: SocketAddr,
 }
 
-impl WsConnection {
+// ---- 客户端连接（MaybeTlsStream<TcpStream>）----
+
+impl WsConnection<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     /// 连接到远端 WebSocket 服务器
     ///
     /// # 参数
@@ -249,38 +256,39 @@ impl WsConnection {
     ///
     /// 返回 `TransportError` 表示连接失败。
     pub async fn connect(uri: &str) -> Result<Self, TransportError> {
-        let (stream, _response) =
-            tokio_tungstenite::connect_async(uri)
-                .await
-                .map_err(|e| TransportError::ConnectionFailed {
-                    addr: uri.to_string(),
-                    reason: format!("WebSocket connect failed: {}", e),
-                })?;
+        let (stream, _response) = tokio_tungstenite::connect_async(uri).await.map_err(|e| {
+            TransportError::ConnectionFailed {
+                addr: uri.to_string(),
+                reason: format!("WebSocket connect failed: {}", e),
+            }
+        })?;
 
-        let peer_addr = extract_peer_addr(&stream, uri);
+        let peer_addr = extract_peer_addr_from_uri(uri);
 
-        Ok(Self {
-            stream,
-            peer_addr,
-        })
+        Ok(Self { stream, peer_addr })
     }
+}
 
-    /// 从已接受的 WebSocket 流创建连接
+// ---- 服务端连接（TcpStream）----
+
+impl WsConnection<tokio::net::TcpStream> {
+    /// 从已接受的 WebSocket 流创建服务端连接
     ///
     /// # 参数
     ///
     /// - `stream` - 已建立的 WebSocket 流
     /// - `peer_addr` - 对端地址
-    pub fn from_stream(
-        stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+    pub fn from_server_stream(
+        stream: WebSocketStream<tokio::net::TcpStream>,
         peer_addr: SocketAddr,
     ) -> Self {
-        Self {
-            stream,
-            peer_addr,
-        }
+        Self { stream, peer_addr }
     }
+}
 
+// ---- 通用方法 ----
+
+impl<S: AsyncRead + AsyncWrite + Unpin> WsConnection<S> {
     /// 获取对端地址
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
@@ -296,7 +304,7 @@ impl WsConnection {
     /// 拆分后：
     /// - `WsReadStream` 用于接收循环（读取消息）
     /// - `WsWriteStream` 用于连接池（发送消息）
-    pub fn into_split(self) -> (WsReadStream, WsWriteStream) {
+    pub fn into_split(self) -> (WsReadStream<S>, WsWriteStream<S>) {
         let (sink, stream) = self.stream.split();
         (
             WsReadStream {
@@ -390,48 +398,53 @@ impl WsListener {
     ///
     /// - `event_tx` - 传输事件发送端
     /// - `connection_tx` - 新连接通知通道（发送写入流到连接池）
+    #[allow(clippy::result_large_err)]
     pub async fn accept_loop(
         &self,
         event_tx: mpsc::Sender<TransportEvent>,
-        connection_tx: mpsc::Sender<Arc<tokio::sync::Mutex<WsWriteStream>>>,
+        connection_tx: mpsc::Sender<Arc<tokio::sync::Mutex<WsWriteStream<tokio::net::TcpStream>>>>,
     ) {
         loop {
             match self.listener.accept().await {
                 Ok((stream, peer_addr)) => {
-                    tracing::info!("WS: new TCP connection from {}, upgrading to WebSocket", peer_addr);
+                    tracing::info!(
+                        "WS: new TCP connection from {}, upgrading to WebSocket",
+                        peer_addr
+                    );
 
                     // 升级为 WebSocket 连接，设置子协议为 "sip"
-                    let ws_stream = match accept_hdr_async(stream, |req: &Request, mut resp: Response| {
-                        // 检查客户端是否请求了 "sip" 子协议
-                        if let Some(protocols) = req.headers().get("sec-websocket-protocol") {
-                            if let Ok(protocols_str) = protocols.to_str() {
-                                if protocols_str.split(',').any(|p| p.trim() == "sip") {
-                                    resp.headers_mut().insert(
-                                        "sec-websocket-protocol",
-                                        "sip".parse().unwrap(),
-                                    );
+                    let ws_stream =
+                        match accept_hdr_async(stream, |req: &Request, mut resp: Response| {
+                            // 检查客户端是否请求了 "sip" 子协议
+                            if let Some(protocols) = req.headers().get("sec-websocket-protocol") {
+                                if let Ok(protocols_str) = protocols.to_str() {
+                                    if protocols_str.split(',').any(|p| p.trim() == "sip") {
+                                        resp.headers_mut().insert(
+                                            "sec-websocket-protocol",
+                                            "sip".parse().unwrap(),
+                                        );
+                                    }
                                 }
                             }
-                        }
-                        Ok(resp)
-                    })
-                    .await
-                    {
-                        Ok(ws) => ws,
-                        Err(e) => {
-                            tracing::error!(
-                                "WS: failed to upgrade connection from {}: {}",
-                                peer_addr,
-                                e
-                            );
-                            continue;
-                        }
-                    };
+                            Ok(resp)
+                        })
+                        .await
+                        {
+                            Ok(ws) => ws,
+                            Err(e) => {
+                                tracing::error!(
+                                    "WS: failed to upgrade connection from {}: {}",
+                                    peer_addr,
+                                    e
+                                );
+                                continue;
+                            }
+                        };
 
                     tracing::info!("WS: WebSocket connection established with {}", peer_addr);
 
                     // 创建 WsConnection 并拆分
-                    let conn = WsConnection::from_stream(ws_stream, peer_addr);
+                    let conn = WsConnection::from_server_stream(ws_stream, peer_addr);
                     let (read_stream, write_stream) = conn.into_split();
 
                     // 将写入流注册到连接池
@@ -459,20 +472,11 @@ impl WsListener {
 // 内部辅助函数
 // ============================================================================
 
-/// 从 WebSocket 流中提取对端地址
+/// 从 URI 中解析对端地址
 ///
-/// 尝试从底层 TCP 流获取对端地址，如果失败则尝试从 URI 中解析。
-fn extract_peer_addr(
-    stream: &WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
-    uri: &str,
-) -> SocketAddr {
-    // 尝试从 WebSocket 流获取对端地址
-    if let Some(addr) = stream.get_ref().try_to_socket_addr() {
-        return addr;
-    }
-
-    // 回退：从 URI 中解析地址
-    // 简单解析 ws://host:port 或 wss://host:port
+/// 从 `ws://host:port` 或 `wss://host:port` 格式的 URI 中解析地址。
+fn extract_peer_addr_from_uri(uri: &str) -> SocketAddr {
+    // 去掉 scheme 前缀
     let stripped = uri
         .strip_prefix("ws://")
         .or_else(|| uri.strip_prefix("wss://"))
@@ -481,7 +485,9 @@ fn extract_peer_addr(
     // 去掉路径部分
     let host_port = stripped.split('/').next().unwrap_or(stripped);
 
-    host_port.parse().unwrap_or(SocketAddr::from(([127, 0, 0, 1], 0)))
+    host_port
+        .parse()
+        .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 0)))
 }
 
 // ============================================================================
@@ -520,5 +526,15 @@ mod tests {
         assert_eq!(TransportProtocol::Wss.default_port(), 5061);
         assert!(TransportProtocol::Wss.is_reliable());
         assert!(TransportProtocol::Wss.is_secure());
+    }
+
+    #[test]
+    fn test_extract_peer_addr_from_uri() {
+        let addr = extract_peer_addr_from_uri("ws://192.168.1.1:8080");
+        assert_eq!(addr, "192.168.1.1:8080".parse::<SocketAddr>().unwrap());
+
+        // 域名无法解析为 SocketAddr，应返回默认值
+        let addr = extract_peer_addr_from_uri("wss://example.com:443/path");
+        assert_eq!(addr, SocketAddr::from(([127, 0, 0, 1], 0)));
     }
 }

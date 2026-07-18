@@ -5,16 +5,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "SIP transport layer with UDP, TCP, and TLS support"
+description = "SIP transport layer with UDP, TCP, TLS, and WebSocket support"
 keywords.workspace = true
 categories.workspace = true
 readme.workspace = true
 homepage.workspace = true
 
 [features]
-default = ["tls-rustls"]
+default = ["tls-rustls", "ws"]
 tls-rustls = ["rustls", "tokio-rustls", "rustls-pki-types", "webpki-roots"]
 tls-native = []  # reserved for future native-tls support
+ws = ["tokio-tungstenite"]
+wss = ["tokio-tungstenite/native-tls"]
 
 [dependencies]
 siprs-core.workspace = true
@@ -32,6 +34,9 @@ rustls = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
 rustls-pki-types = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
+
+# WebSocket (feature-gated)
+tokio-tungstenite = { version = "0.24", optional = true }
 
 [dev-dependencies]
 tokio-test.workspace = true

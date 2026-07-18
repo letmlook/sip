@@ -1,4 +1,6 @@
-//! SIP UA - User Agent implementation for the SIP protocol stack
+//! # siprs-ua
+//!
+//! SIP 用户代理核心实现，提供 SipEngine、GB28181 设备端与平台端支持。
 //!
 //! SIP UA 层提供用户代理的核心功能，包括：
 //! - 呼出控制（UAC）
@@ -6,13 +8,15 @@
 //! - 呼叫控制（挂断、取消、会话修改）
 //! - 注册管理
 //! - 事件通知
+//! - GB28181 设备端（`Gb28181Device`）
+//! - GB28181 平台端（`Gb28181Server`）
 //!
 //! # 架构
 //!
 //! ```text
 //! Application Layer
-//!       ↕ (SipEvent)
-//!    SipEngine
+//!       ↕ (SipEvent / Gb28181Event / Gb28181ServerEvent)
+//!    SipEngine / Gb28181Device / Gb28181Server
 //!       ↕
 //! ┌────┼────┬────────┐
 //! UAC  UAS  Dialog   Registration
@@ -20,6 +24,14 @@
 //! ┌────┼────┬────────┐
 //! Transport Transaction Dialog Registration
 //! ```
+//!
+//! # 核心类型
+//!
+//! - [`SipEngine`] — SIP 协议栈主入口，协调所有下层组件
+//! - [`SipEvent`] — 向上层应用通知的事件类型
+//! - [`Gb28181Device`] — GB28181 设备端完整实现
+//! - [`Gb28181Server`] — GB28181 平台端完整实现
+//! - [`DeviceRegistry`] — 设备在线状态管理与设备树
 //!
 //! # 示例
 //!

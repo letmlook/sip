@@ -1,14 +1,23 @@
-//! SIP SDP - SDP (Session Description Protocol) 解析/构建库
+//! # siprs-sdp
+//!
+//! SDP (Session Description Protocol) 解析/构建库，支持 GB28181 国标扩展。
 //!
 //! 基于 RFC 4566 实现的 SDP 会话描述协议解析和构建工具，
 //! 并支持 GB/T 28181 国标扩展属性（y=、f= 行）。
 //!
 //! # 模块结构
 //!
-//! - [`types`] - SDP 核心数据类型定义
-//! - [`parser`] - SDP 文本解析器
-//! - [`builder`] - SDP 构建器（Builder 模式）
-//! - [`gb28181`] - GB28181 国标扩展
+//! - [`types`] — SDP 核心数据类型定义
+//! - [`parser`] — SDP 文本解析器
+//! - [`builder`] — SDP 构建器（Builder 模式）
+//! - [`gb28181`] — GB28181 国标扩展
+//!
+//! # GB28181 扩展
+//!
+//! GB28181 在标准 SDP 基础上增加了以下扩展：
+//!
+//! - `y=` 行 — SSRC（同步源标识），20 位国标编码
+//! - `f=` 行 — 媒体参数，包含视频/音频编码和流类型
 //!
 //! # 快速开始
 //!

@@ -1,6 +1,6 @@
 //! SIP 传输管理器
 //!
-//! 统一管理所有传输协议（UDP/TCP/TLS），提供消息发送、接收和
+//! 统一管理所有传输协议（UDP/TCP/TLS/WS），提供消息发送、接收和
 //! 传输协议自动选择功能。
 
 use std::net::SocketAddr;
@@ -24,6 +24,8 @@ use crate::tcp::{TcpConnection, TcpListener, TcpWriteStream};
 use crate::tls::TlsConnection;
 use crate::traits::{Transport, TransportEvent};
 use crate::udp::UdpTransport;
+#[cfg(feature = "ws")]
+use crate::ws::{WsConnection, WsListener};
 
 /// SIP 默认最大消息大小
 const SIP_DEFAULT_MAX_MESSAGE_SIZE: usize = 65535;
@@ -35,7 +37,7 @@ const SIP_DEFAULT_MAX_MESSAGE_SIZE: usize = 65535;
 /// SIP 传输管理器
 ///
 /// 统一管理所有传输协议，提供：
-/// - 传输协议自动选择（sips: → TLS, transport=tcp → TCP, 默认 UDP）
+/// - 传输协议自动选择（sips: → TLS, transport=tcp → TCP, sip+ws: → WS, 默认 UDP）
 /// - UDP 消息截断自动切换 TCP
 /// - Via 头部自动添加
 /// - DNS 解析集成
@@ -50,6 +52,9 @@ pub struct TransportManager {
     udp: Option<Arc<UdpTransport>>,
     /// TCP 监听器
     tcp_listener: Option<Arc<TcpListener>>,
+    /// WebSocket 监听器
+    #[cfg(feature = "ws")]
+    ws_listener: Option<Arc<WsListener>>,
     /// 连接池
     connection_pool: Arc<Mutex<ConnectionPool>>,
     /// DNS 解析器
@@ -86,6 +91,8 @@ impl TransportManager {
             tls_config,
             udp: None,
             tcp_listener: None,
+            #[cfg(feature = "ws")]
+            ws_listener: None,
             connection_pool: Arc::new(Mutex::new(ConnectionPool::new(idle_timeout))),
             dns_resolver: Arc::new(SystemDnsResolver::new()),
             message_parser: MessageParser::new(SIP_DEFAULT_MAX_MESSAGE_SIZE),
@@ -112,6 +119,8 @@ impl TransportManager {
             tls_config,
             udp: None,
             tcp_listener: None,
+            #[cfg(feature = "ws")]
+            ws_listener: None,
             connection_pool: Arc::new(Mutex::new(ConnectionPool::new(idle_timeout))),
             dns_resolver,
             message_parser: MessageParser::new(SIP_DEFAULT_MAX_MESSAGE_SIZE),
@@ -252,6 +261,12 @@ impl TransportManager {
         // 关闭 TCP 监听器
         self.tcp_listener = None;
 
+        // 关闭 WebSocket 监听器
+        #[cfg(feature = "ws")]
+        {
+            self.ws_listener = None;
+        }
+
         // 关闭所有连接
         self.connection_pool.lock().await.close_all();
 
@@ -319,9 +334,8 @@ impl TransportManager {
             TransportProtocol::Udp => self.send_via_udp(&bytes, &addrs).await,
             TransportProtocol::Tcp => self.send_via_tcp(&bytes, &uri).await,
             TransportProtocol::Tls => self.send_via_tls(&bytes, &uri).await,
-            _ => Err(TransportError::SendFailed {
-                reason: format!("unsupported transport: {}", transport),
-            }),
+            TransportProtocol::Ws => self.send_via_ws(&bytes, &uri).await,
+            TransportProtocol::Wss => self.send_via_wss(&bytes, &uri).await,
         }
     }
 
@@ -380,6 +394,91 @@ impl TransportManager {
                 self.metrics.inc_messages_sent();
                 Ok(())
             }
+            TransportProtocol::Ws => {
+                #[cfg(feature = "ws")]
+                {
+                    // 尝试从连接池获取连接
+                    let mut pool = self.connection_pool.lock().await;
+                    if let Some(conn) = pool.get_ws_connection(&addr) {
+                        let mut ws_conn = conn.lock().await;
+                        ws_conn.send_raw(message).await?;
+                        self.metrics.inc_messages_sent();
+                        return Ok(());
+                    }
+                    drop(pool);
+
+                    // 创建新 WebSocket 连接
+                    let ws_uri = format!("ws://{}", addr);
+                    let conn = WsConnection::connect(&ws_uri).await?;
+                    let (read_stream, write_stream) = conn.into_split();
+
+                    // 将写入流添加到连接池
+                    self.connection_pool
+                        .lock()
+                        .await
+                        .add_ws_connection(addr, Arc::new(Mutex::new(write_stream)));
+
+                    // 启动接收循环
+                    let event_tx = self.event_tx.clone();
+                    tokio::spawn(async move {
+                        read_stream.receive_loop(event_tx).await;
+                    });
+
+                    self.metrics.inc_messages_sent();
+                    Ok(())
+                }
+                #[cfg(not(feature = "ws"))]
+                {
+                    let _ = (message, addr);
+                    Err(TransportError::SendFailed {
+                        reason: "WebSocket transport not available (ws feature not enabled)"
+                            .to_string(),
+                    })
+                }
+            }
+            TransportProtocol::Wss => {
+                #[cfg(feature = "wss")]
+                {
+                    // 尝试从连接池获取连接
+                    let mut pool = self.connection_pool.lock().await;
+                    if let Some(conn) = pool.get_ws_connection(&addr) {
+                        let mut ws_conn = conn.lock().await;
+                        ws_conn.send_raw(message).await?;
+                        self.metrics.inc_messages_sent();
+                        return Ok(());
+                    }
+                    drop(pool);
+
+                    // 创建新 WSS 连接
+                    let wss_uri = format!("wss://{}", addr);
+                    let conn = WsConnection::connect(&wss_uri).await?;
+                    let (read_stream, write_stream) = conn.into_split();
+
+                    // 将写入流添加到连接池
+                    self.connection_pool
+                        .lock()
+                        .await
+                        .add_ws_connection(addr, Arc::new(Mutex::new(write_stream)));
+
+                    // 启动接收循环
+                    let event_tx = self.event_tx.clone();
+                    tokio::spawn(async move {
+                        read_stream.receive_loop(event_tx).await;
+                    });
+
+                    self.metrics.inc_messages_sent();
+                    Ok(())
+                }
+                #[cfg(not(feature = "wss"))]
+                {
+                    let _ = (message, addr);
+                    Err(TransportError::SendFailed {
+                        reason:
+                            "WebSocket Secure transport not available (wss feature not enabled)"
+                                .to_string(),
+                    })
+                }
+            }
             _ => Err(TransportError::SendFailed {
                 reason: format!("unsupported transport: {}", transport),
             }),
@@ -427,10 +526,24 @@ impl TransportManager {
     ///
     /// 选择规则：
     /// - `sips:` URI → TLS
+    /// - `sip+ws:` URI → WS (RFC 7118)
+    /// - `sip+wss:` URI → WSS (RFC 7118)
     /// - `transport=tcp` 参数 → TCP
     /// - `transport=tls` 参数 → TLS
+    /// - `transport=ws` 参数 → WS
+    /// - `transport=wss` 参数 → WSS
     /// - 默认 → UDP
     fn determine_transport(&self, uri: &siprs_message::SipUri) -> TransportProtocol {
+        // sip+ws: URI 强制使用 WebSocket
+        if uri.scheme == siprs_message::UriScheme::SipWs {
+            return TransportProtocol::Ws;
+        }
+
+        // sip+wss: URI 强制使用 WebSocket Secure
+        if uri.scheme == siprs_message::UriScheme::SipWss {
+            return TransportProtocol::Wss;
+        }
+
         // sips: URI 强制使用 TLS
         if uri.scheme == siprs_message::UriScheme::Sips {
             return TransportProtocol::Tls;
@@ -442,6 +555,8 @@ impl TransportManager {
                 "tcp" => return TransportProtocol::Tcp,
                 "tls" => return TransportProtocol::Tls,
                 "udp" => return TransportProtocol::Udp,
+                "ws" => return TransportProtocol::Ws,
+                "wss" => return TransportProtocol::Wss,
                 _ => {}
             }
         }
@@ -665,6 +780,172 @@ impl TransportManager {
             })
         }
     }
+
+    /// 通过 WebSocket 发送消息
+    ///
+    /// 连接到远端 WebSocket 服务器并发送 SIP 消息（文本帧）。
+    /// 支持连接池复用。
+    async fn send_via_ws(
+        &self,
+        bytes: &[u8],
+        uri: &siprs_message::SipUri,
+    ) -> Result<(), TransportError> {
+        #[cfg(feature = "ws")]
+        {
+            let host_str = uri.host.as_str();
+            let port = uri.port.unwrap_or(TransportProtocol::Ws.default_port());
+
+            // 构建 WebSocket URI
+            let ws_uri = format!("ws://{}:{}", host_str, port);
+            let addrs = self
+                .resolve_target(&host_str, port, TransportProtocol::Ws)
+                .await?;
+
+            for addr in &addrs {
+                // 尝试从连接池获取连接
+                let mut pool = self.connection_pool.lock().await;
+                if let Some(conn) = pool.get_ws_connection(addr) {
+                    let mut conn = conn.lock().await;
+                    match conn.send_raw(bytes).await {
+                        Ok(()) => {
+                            self.metrics.inc_messages_sent();
+                            tracing::debug!("TransportManager: sent WS message to {}", addr);
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            tracing::warn!("TransportManager: WS send to {} failed: {}", addr, e);
+                            pool.remove_ws_connection(addr);
+                            continue;
+                        }
+                    }
+                }
+                drop(pool);
+
+                // 创建新连接
+                match WsConnection::connect(&ws_uri).await {
+                    Ok(conn) => {
+                        let (read_stream, write_stream) = conn.into_split();
+
+                        // 将写入流添加到连接池
+                        let write_stream = Arc::new(Mutex::new(write_stream));
+                        self.connection_pool
+                            .lock()
+                            .await
+                            .add_ws_connection(*addr, write_stream);
+
+                        // 启动接收循环
+                        let event_tx = self.event_tx.clone();
+                        tokio::spawn(async move {
+                            read_stream.receive_loop(event_tx).await;
+                        });
+
+                        self.metrics.inc_messages_sent();
+                        tracing::debug!("TransportManager: sent WS message to {}", addr);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::warn!("TransportManager: WS connect to {} failed: {}", addr, e);
+                        continue;
+                    }
+                }
+            }
+
+            Err(TransportError::SendFailed {
+                reason: "all WS send attempts failed".to_string(),
+            })
+        }
+
+        #[cfg(not(feature = "ws"))]
+        {
+            let _ = (bytes, uri);
+            Err(TransportError::SendFailed {
+                reason: "WebSocket transport not available (ws feature not enabled)".to_string(),
+            })
+        }
+    }
+
+    /// 通过 WebSocket Secure 发送消息
+    ///
+    /// 连接到远端 WSS 服务器并发送 SIP 消息（文本帧）。
+    async fn send_via_wss(
+        &self,
+        bytes: &[u8],
+        uri: &siprs_message::SipUri,
+    ) -> Result<(), TransportError> {
+        #[cfg(feature = "wss")]
+        {
+            let host_str = uri.host.as_str();
+            let port = uri.port.unwrap_or(TransportProtocol::Wss.default_port());
+
+            // 构建 WSS URI
+            let wss_uri = format!("wss://{}:{}", host_str, port);
+            let addrs = self
+                .resolve_target(&host_str, port, TransportProtocol::Wss)
+                .await?;
+
+            for addr in &addrs {
+                // 尝试从连接池获取连接
+                let mut pool = self.connection_pool.lock().await;
+                if let Some(conn) = pool.get_ws_connection(addr) {
+                    let mut conn = conn.lock().await;
+                    match conn.send_raw(bytes).await {
+                        Ok(()) => {
+                            self.metrics.inc_messages_sent();
+                            tracing::debug!("TransportManager: sent WSS message to {}", addr);
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            tracing::warn!("TransportManager: WSS send to {} failed: {}", addr, e);
+                            pool.remove_ws_connection(addr);
+                            continue;
+                        }
+                    }
+                }
+                drop(pool);
+
+                // 创建新连接
+                match WsConnection::connect(&wss_uri).await {
+                    Ok(conn) => {
+                        let (read_stream, write_stream) = conn.into_split();
+
+                        // 将写入流添加到连接池
+                        let write_stream = Arc::new(Mutex::new(write_stream));
+                        self.connection_pool
+                            .lock()
+                            .await
+                            .add_ws_connection(*addr, write_stream);
+
+                        // 启动接收循环
+                        let event_tx = self.event_tx.clone();
+                        tokio::spawn(async move {
+                            read_stream.receive_loop(event_tx).await;
+                        });
+
+                        self.metrics.inc_messages_sent();
+                        tracing::debug!("TransportManager: sent WSS message to {}", addr);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::warn!("TransportManager: WSS connect to {} failed: {}", addr, e);
+                        continue;
+                    }
+                }
+            }
+
+            Err(TransportError::SendFailed {
+                reason: "all WSS send attempts failed".to_string(),
+            })
+        }
+
+        #[cfg(not(feature = "wss"))]
+        {
+            let _ = (bytes, uri);
+            Err(TransportError::SendFailed {
+                reason: "WebSocket Secure transport not available (wss feature not enabled)"
+                    .to_string(),
+            })
+        }
+    }
 }
 
 // ============================================================================
@@ -715,6 +996,34 @@ mod tests {
         let manager = create_test_manager();
         let uri = siprs_message::SipUri::parse("sip:bob@example.com").unwrap();
         assert_eq!(manager.determine_transport(&uri), TransportProtocol::Udp);
+    }
+
+    #[test]
+    fn test_determine_transport_sip_ws_uri() {
+        let manager = create_test_manager();
+        let uri = siprs_message::SipUri::parse("sip+ws:bob@example.com").unwrap();
+        assert_eq!(manager.determine_transport(&uri), TransportProtocol::Ws);
+    }
+
+    #[test]
+    fn test_determine_transport_sip_wss_uri() {
+        let manager = create_test_manager();
+        let uri = siprs_message::SipUri::parse("sip+wss:bob@example.com").unwrap();
+        assert_eq!(manager.determine_transport(&uri), TransportProtocol::Wss);
+    }
+
+    #[test]
+    fn test_determine_transport_ws_param() {
+        let manager = create_test_manager();
+        let uri = siprs_message::SipUri::parse("sip:bob@example.com;transport=ws").unwrap();
+        assert_eq!(manager.determine_transport(&uri), TransportProtocol::Ws);
+    }
+
+    #[test]
+    fn test_determine_transport_wss_param() {
+        let manager = create_test_manager();
+        let uri = siprs_message::SipUri::parse("sip:bob@example.com;transport=wss").unwrap();
+        assert_eq!(manager.determine_transport(&uri), TransportProtocol::Wss);
     }
 
     #[tokio::test]

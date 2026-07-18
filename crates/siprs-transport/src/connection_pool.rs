@@ -1,6 +1,6 @@
 //! SIP 传输连接池
 //!
-//! 管理面向连接的传输（TCP/TLS）的连接复用与生命周期。
+//! 管理面向连接的传输（TCP/TLS/WS）的连接复用与生命周期。
 //! 同一远端地址的多个消息复用同一连接，空闲超时自动关闭。
 
 use std::collections::HashMap;
@@ -13,6 +13,8 @@ use tokio::sync::Mutex;
 use tracing;
 
 use crate::tcp::TcpWriteStream;
+#[cfg(feature = "ws")]
+use crate::ws::ClientWsWriteStream;
 
 // ============================================================================
 // PooledConnection - 连接池中的连接
@@ -58,7 +60,7 @@ impl PooledConnection {
 
 /// 连接池
 ///
-/// 管理面向连接的传输（TCP/TLS）的连接，支持：
+/// 管理面向连接的传输（TCP/TLS/WS）的连接，支持：
 /// - 同一远端地址的连接复用
 /// - 空闲超时自动关闭
 /// - 连接断开通知
@@ -69,6 +71,12 @@ pub struct ConnectionPool {
     tcp_connections: HashMap<SocketAddr, Arc<Mutex<TcpWriteStream>>>,
     /// TCP 连接元数据
     tcp_meta: HashMap<SocketAddr, PooledConnection>,
+    /// WebSocket 连接池：远端地址 → 写入流
+    #[cfg(feature = "ws")]
+    ws_connections: HashMap<SocketAddr, Arc<Mutex<ClientWsWriteStream>>>,
+    /// WebSocket 连接元数据
+    #[cfg(feature = "ws")]
+    ws_meta: HashMap<SocketAddr, PooledConnection>,
     /// 连接空闲超时时间
     idle_timeout: Duration,
 }
@@ -83,6 +91,10 @@ impl ConnectionPool {
         Self {
             tcp_connections: HashMap::new(),
             tcp_meta: HashMap::new(),
+            #[cfg(feature = "ws")]
+            ws_connections: HashMap::new(),
+            #[cfg(feature = "ws")]
+            ws_meta: HashMap::new(),
             idle_timeout,
         }
     }
@@ -131,6 +143,54 @@ impl ConnectionPool {
         self.tcp_meta.contains_key(addr)
     }
 
+    // ---- WebSocket 连接管理 ----
+
+    /// 添加 WebSocket 连接到连接池
+    ///
+    /// 如果该远端地址已有连接，则替换旧连接。
+    #[cfg(feature = "ws")]
+    pub fn add_ws_connection(&mut self, addr: SocketAddr, conn: Arc<Mutex<ClientWsWriteStream>>) {
+        tracing::debug!("ConnectionPool: adding WS connection to {}", addr);
+        self.ws_connections.insert(addr, conn);
+        self.ws_meta
+            .insert(addr, PooledConnection::new(TransportProtocol::Ws));
+    }
+
+    /// 获取 WebSocket 连接
+    ///
+    /// 如果连接存在且未超时，返回连接并更新活动时间。
+    /// 如果连接已超时，移除连接并返回 None。
+    #[cfg(feature = "ws")]
+    pub fn get_ws_connection(
+        &mut self,
+        addr: &SocketAddr,
+    ) -> Option<Arc<Mutex<ClientWsWriteStream>>> {
+        // 检查元数据
+        if let Some(meta) = self.ws_meta.get_mut(addr) {
+            if meta.is_idle_timeout(self.idle_timeout) {
+                tracing::debug!("ConnectionPool: WS connection to {} idle timeout", addr);
+                self.remove_ws_connection(addr);
+                return None;
+            }
+            meta.touch();
+        }
+
+        self.ws_connections.get(addr).cloned()
+    }
+
+    /// 移除 WebSocket 连接
+    #[cfg(feature = "ws")]
+    pub fn remove_ws_connection(&mut self, addr: &SocketAddr) {
+        self.ws_connections.remove(addr);
+        self.ws_meta.remove(addr);
+    }
+
+    /// 检查是否存在到指定地址的 WebSocket 连接
+    #[cfg(feature = "ws")]
+    pub fn has_ws_connection(&self, addr: &SocketAddr) -> bool {
+        self.ws_meta.contains_key(addr)
+    }
+
     /// 清理所有空闲超时的连接
     ///
     /// 遍历所有连接，移除已超时的连接。返回被清理的连接地址列表。
@@ -152,26 +212,63 @@ impl ConnectionPool {
             closed.push((*addr, TransportProtocol::Tcp));
         }
 
+        // 收集超时的 WebSocket 连接
+        #[cfg(feature = "ws")]
+        {
+            let ws_timeout_addrs: Vec<SocketAddr> = self
+                .ws_meta
+                .iter()
+                .filter(|(_, meta)| meta.is_idle_timeout(self.idle_timeout))
+                .map(|(addr, _)| *addr)
+                .collect();
+
+            for addr in &ws_timeout_addrs {
+                tracing::debug!("ConnectionPool: closing idle WS connection to {}", addr);
+                self.ws_connections.remove(addr);
+                self.ws_meta.remove(addr);
+                closed.push((*addr, TransportProtocol::Ws));
+            }
+        }
+
         closed
     }
 
     /// 获取当前活跃连接数
     pub fn active_connection_count(&self) -> usize {
-        self.tcp_meta.len()
+        let count = self.tcp_meta.len();
+        #[cfg(feature = "ws")]
+        let count = count + self.ws_meta.len();
+        count
     }
 
     /// 关闭所有连接
     pub fn close_all(&mut self) {
         self.tcp_connections.clear();
         self.tcp_meta.clear();
+        #[cfg(feature = "ws")]
+        {
+            self.ws_connections.clear();
+            self.ws_meta.clear();
+        }
     }
 
     /// 获取所有活跃连接的地址列表
     pub fn active_addresses(&self) -> Vec<(SocketAddr, TransportProtocol)> {
-        self.tcp_meta
+        #[allow(unused_mut)]
+        let mut addrs: Vec<(SocketAddr, TransportProtocol)> = self
+            .tcp_meta
             .iter()
             .map(|(addr, meta)| (*addr, meta.transport))
-            .collect()
+            .collect();
+
+        #[cfg(feature = "ws")]
+        addrs.extend(
+            self.ws_meta
+                .iter()
+                .map(|(addr, meta)| (*addr, meta.transport)),
+        );
+
+        addrs
     }
 }
 
