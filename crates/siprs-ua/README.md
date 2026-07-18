@@ -1,6 +1,15 @@
 # siprs-ua
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-ua.svg)](https://crates.io/crates/siprs-ua)
+[![Documentation](https://docs.rs/siprs-ua/badge.svg)](https://docs.rs/siprs-ua)
+
 SIP 用户代理核心实现，提供 SipEngine、GB28181 设备端与平台端支持。
+
+## 安装
+
+```bash
+cargo add siprs-ua
+```
 
 ## 简介
 

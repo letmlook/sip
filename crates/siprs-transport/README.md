@@ -1,6 +1,15 @@
 # siprs-transport
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-transport.svg)](https://crates.io/crates/siprs-transport)
+[![Documentation](https://docs.rs/siprs-transport/badge.svg)](https://docs.rs/siprs-transport)
+
 SIP 协议栈传输层实现，支持 UDP、TCP、TLS 三种传输协议。
+
+## 安装
+
+```bash
+cargo add siprs-transport
+```
 
 ## 简介
 

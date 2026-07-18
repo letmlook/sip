@@ -1,6 +1,15 @@
 # siprs-gb28181-codec
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-gb28181-codec.svg)](https://crates.io/crates/siprs-gb28181-codec)
+[![Documentation](https://docs.rs/siprs-gb28181-codec/badge.svg)](https://docs.rs/siprs-gb28181-codec)
+
 GB28181 20 位国标编码的解析、验证与生成库。
+
+## 安装
+
+```bash
+cargo add siprs-gb28181-codec
+```
 
 ## 简介
 

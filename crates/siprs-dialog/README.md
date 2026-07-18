@@ -1,6 +1,15 @@
 # siprs-dialog
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-dialog.svg)](https://crates.io/crates/siprs-dialog)
+[![Documentation](https://docs.rs/siprs-dialog/badge.svg)](https://docs.rs/siprs-dialog)
+
 SIP 对话层实现，遵循 RFC 3261 Section 12。
+
+## 安装
+
+```bash
+cargo add siprs-dialog
+```
 
 ## 简介
 

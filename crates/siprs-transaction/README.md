@@ -1,6 +1,15 @@
 # siprs-transaction
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-transaction.svg)](https://crates.io/crates/siprs-transaction)
+[![Documentation](https://docs.rs/siprs-transaction/badge.svg)](https://docs.rs/siprs-transaction)
+
 SIP 协议栈事务层实现，遵循 RFC 3261 Section 17。
+
+## 安装
+
+```bash
+cargo add siprs-transaction
+```
 
 ## 简介
 

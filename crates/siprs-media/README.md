@@ -1,6 +1,15 @@
 # siprs-media
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-media.svg)](https://crates.io/crates/siprs-media)
+[![Documentation](https://docs.rs/siprs-media/badge.svg)](https://docs.rs/siprs-media)
+
 媒体协商、RTP/RTCP 包处理和编解码协商库。
+
+## 安装
+
+```bash
+cargo add siprs-media
+```
 
 ## 简介
 

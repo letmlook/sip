@@ -1,6 +1,15 @@
 # siprs-sdp
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-sdp.svg)](https://crates.io/crates/siprs-sdp)
+[![Documentation](https://docs.rs/siprs-sdp/badge.svg)](https://docs.rs/siprs-sdp)
+
 SDP (Session Description Protocol) 解析/构建库，支持 GB28181 国标扩展。
+
+## 安装
+
+```bash
+cargo add siprs-sdp
+```
 
 ## 简介
 

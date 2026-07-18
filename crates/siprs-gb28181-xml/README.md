@@ -1,6 +1,15 @@
 # siprs-gb28181-xml
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-gb28181-xml.svg)](https://crates.io/crates/siprs-gb28181-xml)
+[![Documentation](https://docs.rs/siprs-gb28181-xml/badge.svg)](https://docs.rs/siprs-gb28181-xml)
+
 GB28181 XML 正文处理库，实现 MANSCDP XML 消息的解析和构建。
+
+## 安装
+
+```bash
+cargo add siprs-gb28181-xml
+```
 
 ## 简介
 

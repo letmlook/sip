@@ -3,8 +3,9 @@
 **基于 Rust 的完整 SIP 协议栈 + GB28181 国标信令服务器**
 
 [![CI](https://github.com/sip-rs/sip/actions/workflows/ci.yml/badge.svg)](https://github.com/sip-rs/sip/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/sip-rs.svg)](https://crates.io/crates/sip-rs)
-[![Documentation](https://docs.rs/sip-rs/badge.svg)](https://docs.rs/sip-rs)
+[![Crates.io](https://img.shields.io/crates/v/siprs.svg)](https://crates.io/crates/siprs)
+[![Documentation](https://docs.rs/siprs/badge.svg)](https://docs.rs/siprs)
+[![Downloads](https://img.shields.io/crates/d/siprs.svg)](https://crates.io/crates/siprs)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
 `sip-rs` 是一个用 Rust 编写的完整 SIP (Session Initiation Protocol) 协议栈实现，遵循 RFC 3261 规范，并内置 GB28181 国标适配层，可广泛应用于 VoIP、视频监控、即时通讯等场景。
@@ -90,22 +91,42 @@
 
 ### 安装
 
-在 `Cargo.toml` 中添加依赖：
+使用 `cargo add` 快速安装：
+
+```bash
+# 安装统一 crate（包含所有子 crate）
+cargo add siprs
+
+# 或按需安装独立 crate：
+# cargo add siprs-ua            # 用户代理（最常用）
+# cargo add siprs-core          # 核心类型
+# cargo add siprs-message       # 消息解析/构建
+# cargo add siprs-transport     # 传输层
+# cargo add siprs-transaction   # 事务层
+# cargo add siprs-dialog        # 对话层
+# cargo add siprs-registration  # 注册层
+# cargo add siprs-sdp           # SDP 解析/构建
+# cargo add siprs-media         # 媒体协商/RTP/RTCP
+# cargo add siprs-gb28181-codec # 国标编码
+# cargo add siprs-gb28181-xml   # 国标 XML
+```
+
+或在 `Cargo.toml` 中手动添加：
 
 ```toml
 [dependencies]
-# 使用统一 crate（包含所有子 crate）
 siprs = "0.1"
 
 # 或按需引入独立 crate：
-# siprs-ua = "0.1"          # 用户代理（最常用）
-# siprs-core = "0.1"        # 核心类型
-# siprs-message = "0.1"     # 消息解析/构建
-# siprs-transport = "0.1"   # 传输层
-# siprs-transaction = "0.1" # 事务层
-# siprs-dialog = "0.1"      # 对话层
-# siprs-registration = "0.1" # 注册层
-# siprs-sdp = "0.1"         # SDP 解析/构建
+# siprs-ua = "0.1"            # 用户代理（最常用）
+# siprs-core = "0.1"          # 核心类型
+# siprs-message = "0.1"       # 消息解析/构建
+# siprs-transport = "0.1"     # 传输层
+# siprs-transaction = "0.1"   # 事务层
+# siprs-dialog = "0.1"        # 对话层
+# siprs-registration = "0.1"  # 注册层
+# siprs-sdp = "0.1"           # SDP 解析/构建
+# siprs-media = "0.1"         # 媒体协商/RTP/RTCP
 # siprs-gb28181-codec = "0.1" # 国标编码
 # siprs-gb28181-xml = "0.1"   # 国标 XML
 ```
@@ -232,9 +253,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## 📦 Crate 列表
 
-| Crate | 说明 | 链接 |
-|-------|------|------|
-| [`siprs`](.) | 统一 re-export 所有子 crate | [![Crates.io](https://img.shields.io/crates/v/sip-rs.svg)](https://crates.io/crates/sip-rs) |
+| Crate | 说明 | crates.io |
+|-------|------|-----------|
+| [`siprs`](.) | 统一 re-export 所有子 crate | [![Crates.io](https://img.shields.io/crates/v/siprs.svg)](https://crates.io/crates/siprs) |
 | [`siprs-core`](./crates/siprs-core) | 核心类型、错误处理、配置、运行指标 | [![Crates.io](https://img.shields.io/crates/v/siprs-core.svg)](https://crates.io/crates/siprs-core) |
 | [`siprs-message`](./crates/siprs-message) | SIP 消息解析与构建 (RFC 3261) | [![Crates.io](https://img.shields.io/crates/v/siprs-message.svg)](https://crates.io/crates/siprs-message) |
 | [`siprs-transport`](./crates/siprs-transport) | 传输层 — UDP/TCP/TLS (rustls) | [![Crates.io](https://img.shields.io/crates/v/siprs-transport.svg)](https://crates.io/crates/siprs-transport) |
@@ -243,6 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [`siprs-registration`](./crates/siprs-registration) | 注册层 — MD5 摘要认证、Registrar | [![Crates.io](https://img.shields.io/crates/v/siprs-registration.svg)](https://crates.io/crates/siprs-registration) |
 | [`siprs-ua`](./crates/siprs-ua) | 用户代理 — SipEngine、GB28181 设备/平台 | [![Crates.io](https://img.shields.io/crates/v/siprs-ua.svg)](https://crates.io/crates/siprs-ua) |
 | [`siprs-sdp`](./crates/siprs-sdp) | SDP 解析/构建 + GB28181 媒体扩展 | [![Crates.io](https://img.shields.io/crates/v/siprs-sdp.svg)](https://crates.io/crates/siprs-sdp) |
+| [`siprs-media`](./crates/siprs-media) | 媒体协商、RTP/RTCP 包处理、编解码协商 | [![Crates.io](https://img.shields.io/crates/v/siprs-media.svg)](https://crates.io/crates/siprs-media) |
 | [`siprs-gb28181-codec`](./crates/siprs-gb28181-codec) | GB28181 20 位国标编码解析/生成 | [![Crates.io](https://img.shields.io/crates/v/siprs-gb28181-codec.svg)](https://crates.io/crates/siprs-gb28181-codec) |
 | [`siprs-gb28181-xml`](./crates/siprs-gb28181-xml) | GB28181 XML (MANSCDP) 消息处理 | [![Crates.io](https://img.shields.io/crates/v/siprs-gb28181-xml.svg)](https://crates.io/crates/siprs-gb28181-xml) |
 

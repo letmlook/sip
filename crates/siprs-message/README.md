@@ -1,6 +1,15 @@
 # siprs-message
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-message.svg)](https://crates.io/crates/siprs-message)
+[![Documentation](https://docs.rs/siprs-message/badge.svg)](https://docs.rs/siprs-message)
+
 SIP 消息解析与构建库，遵循 RFC 3261 规范。
+
+## 安装
+
+```bash
+cargo add siprs-message
+```
 
 ## 简介
 

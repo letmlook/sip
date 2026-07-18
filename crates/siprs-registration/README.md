@@ -1,6 +1,15 @@
 # siprs-registration
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-registration.svg)](https://crates.io/crates/siprs-registration)
+[![Documentation](https://docs.rs/siprs-registration/badge.svg)](https://docs.rs/siprs-registration)
+
 SIP 注册层实现，支持客户端注册与注册服务器。
+
+## 安装
+
+```bash
+cargo add siprs-registration
+```
 
 ## 简介
 

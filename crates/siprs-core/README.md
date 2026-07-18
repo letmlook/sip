@@ -1,6 +1,15 @@
 # siprs-core
 
+[![Crates.io](https://img.shields.io/crates/v/siprs-core.svg)](https://crates.io/crates/siprs-core)
+[![Documentation](https://docs.rs/siprs-core/badge.svg)](https://docs.rs/siprs-core)
+
 SIP 协议栈核心类型、错误处理、配置与运行指标。
+
+## 安装
+
+```bash
+cargo add siprs-core
+```
 
 ## 简介
 
