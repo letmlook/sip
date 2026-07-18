@@ -204,7 +204,7 @@ impl FromStr for ViaHeader {
             sent_by,
             branch,
             received,
-            rport: rport.and_then(|p| if p == 0 { None } else { Some(p) }),
+            rport: rport.filter(|&p| p != 0),
         })
     }
 }
