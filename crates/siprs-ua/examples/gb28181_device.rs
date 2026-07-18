@@ -82,7 +82,8 @@ async fn main() {
                     println!("[事件] 📋 收到目录查询 (SN={}, DeviceID={})", sn, device_id);
 
                     // 构建设备目录响应
-                    let item_id = siprs_gb28181_codec::DeviceId::parse("34020000001320000001").unwrap();
+                    let item_id =
+                        siprs_gb28181_codec::DeviceId::parse("34020000001320000001").unwrap();
                     let mut item = siprs_gb28181_xml::DeviceItem::new(item_id);
                     item.name = Some("Camera1".to_string());
                     item.manufacturer = Some("Hikvision".to_string());

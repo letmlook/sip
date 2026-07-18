@@ -205,7 +205,11 @@ async fn main() {
     // 云台控制
     println!("[操作] 云台控制 - 向上...");
     if let Err(e) = server
-        .ptz_control("34020000001320000001", siprs_gb28181_xml::PtzDirection::Up, 31)
+        .ptz_control(
+            "34020000001320000001",
+            siprs_gb28181_xml::PtzDirection::Up,
+            31,
+        )
         .await
     {
         eprintln!("[操作] 云台控制失败: {}", e);

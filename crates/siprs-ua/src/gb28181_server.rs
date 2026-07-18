@@ -110,20 +110,22 @@ impl Notify {
             siprs_gb28181_xml::XmlError::InvalidFormat("missing <Notify> root element".to_string())
         })?;
 
-        let cmd_type_str = simple_extract_tag_value(&inner, "CmdType")
-            .ok_or(siprs_gb28181_xml::XmlError::MissingField("CmdType".to_string()))?;
+        let cmd_type_str = simple_extract_tag_value(&inner, "CmdType").ok_or(
+            siprs_gb28181_xml::XmlError::MissingField("CmdType".to_string()),
+        )?;
         let cmd_type = cmd_type_str
             .parse::<siprs_gb28181_xml::CmdType>()
             .expect("CmdType from XML must be valid");
 
         let sn_str = simple_extract_tag_value(&inner, "SN")
             .ok_or(siprs_gb28181_xml::XmlError::MissingField("SN".to_string()))?;
-        let sn: u32 = sn_str
-            .parse()
-            .map_err(|_| siprs_gb28181_xml::XmlError::InvalidNumber(format!("invalid SN: {sn_str}")))?;
+        let sn: u32 = sn_str.parse().map_err(|_| {
+            siprs_gb28181_xml::XmlError::InvalidNumber(format!("invalid SN: {sn_str}"))
+        })?;
 
-        let device_id = simple_extract_tag_value(&inner, "DeviceID")
-            .ok_or(siprs_gb28181_xml::XmlError::MissingField("DeviceID".to_string()))?;
+        let device_id = simple_extract_tag_value(&inner, "DeviceID").ok_or(
+            siprs_gb28181_xml::XmlError::MissingField("DeviceID".to_string()),
+        )?;
 
         // 解析报警列表
         let alarm_list = if let Some(list_inner) = extract_tag_with_attrs_local(&inner, "AlarmList")
@@ -141,19 +143,21 @@ impl Notify {
         };
 
         // 解析移动位置列表
-        let mobile_position_list =
-            if let Some(list_inner) = extract_tag_with_attrs_local(&inner, "MobilePositionList") {
-                let item_contents = extract_all_tags_local(&list_inner, "Item");
-                let mut items = Vec::with_capacity(item_contents.len());
-                for item_content in &item_contents {
-                    if let Ok(item) = siprs_gb28181_xml::MobilePositionInfo::from_xml_item(item_content) {
-                        items.push(item);
-                    }
+        let mobile_position_list = if let Some(list_inner) =
+            extract_tag_with_attrs_local(&inner, "MobilePositionList")
+        {
+            let item_contents = extract_all_tags_local(&list_inner, "Item");
+            let mut items = Vec::with_capacity(item_contents.len());
+            for item_content in &item_contents {
+                if let Ok(item) = siprs_gb28181_xml::MobilePositionInfo::from_xml_item(item_content)
+                {
+                    items.push(item);
                 }
-                items
-            } else {
-                Vec::new()
-            };
+            }
+            items
+        } else {
+            Vec::new()
+        };
 
         Ok(Self {
             cmd_type,
@@ -699,8 +703,8 @@ impl Gb28181Server {
         let device_id = extract_device_id_from_request(request);
 
         // 解析 XML
-        let msg =
-            siprs_gb28181_xml::parse_xml(&body).map_err(|e| format!("failed to parse XML: {}", e))?;
+        let msg = siprs_gb28181_xml::parse_xml(&body)
+            .map_err(|e| format!("failed to parse XML: {}", e))?;
 
         match msg {
             siprs_gb28181_xml::Message::Response(response) => {
@@ -1945,7 +1949,11 @@ mod tests {
         let server = Gb28181Server::new(config);
 
         let result = server
-            .ptz_control("34020000001320000001", siprs_gb28181_xml::PtzDirection::Up, 31)
+            .ptz_control(
+                "34020000001320000001",
+                siprs_gb28181_xml::PtzDirection::Up,
+                31,
+            )
             .await;
         assert!(result.is_err());
     }

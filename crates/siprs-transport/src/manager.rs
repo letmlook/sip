@@ -754,7 +754,10 @@ mod tests {
         );
         headers.insert(
             HeaderName::CSeq,
-            HeaderValue::CSeq(siprs_message::CSeqHeader::new(1, siprs_message::Method::Invite)),
+            HeaderValue::CSeq(siprs_message::CSeqHeader::new(
+                1,
+                siprs_message::Method::Invite,
+            )),
         );
 
         let mut message = SipMessage::Request(siprs_message::SipRequest {

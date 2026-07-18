@@ -1,8 +1,9 @@
 //! SIP URI 解析与构建
 //!
 //! 实现符合 RFC 3261 Section 19.1 的 SIP URI 解析和序列化。
-//! 支持 `sip:` 和 `sips:` 两种 scheme，支持 IPv6 地址（方括号包裹），
-//! 支持 URI 参数和头部参数。
+//! 支持 `sip:` 和 `sips:` 两种 scheme，以及 RFC 7118 定义的
+//! `sip+ws:` 和 `sip+wss:` WebSocket URI scheme。
+//! 支持 IPv6 地址（方括号包裹），支持 URI 参数和头部参数。
 
 use std::fmt;
 use std::str::FromStr;
@@ -14,12 +15,19 @@ use siprs_core::{Host, ParseError};
 // ============================================================================
 
 /// SIP URI scheme
+///
+/// 支持 RFC 3261 定义的 `sip:` 和 `sips:` scheme，
+/// 以及 RFC 7118 定义的 `sip+ws:` 和 `sip+wss:` WebSocket scheme。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UriScheme {
     /// `sip:` scheme
     Sip,
     /// `sips:` scheme（安全 SIP）
     Sips,
+    /// `sip+ws:` scheme（SIP over WebSocket，RFC 7118）
+    SipWs,
+    /// `sip+wss:` scheme（SIP over WebSocket Secure，RFC 7118）
+    SipWss,
 }
 
 impl fmt::Display for UriScheme {
@@ -27,6 +35,8 @@ impl fmt::Display for UriScheme {
         match self {
             Self::Sip => write!(f, "sip"),
             Self::Sips => write!(f, "sips"),
+            Self::SipWs => write!(f, "sip+ws"),
+            Self::SipWss => write!(f, "sip+wss"),
         }
     }
 }
@@ -38,6 +48,8 @@ impl FromStr for UriScheme {
         match s.to_lowercase().as_str() {
             "sip" => Ok(Self::Sip),
             "sips" => Ok(Self::Sips),
+            "sip+ws" => Ok(Self::SipWs),
+            "sip+wss" => Ok(Self::SipWss),
             _ => Err(ParseError::InvalidUri {
                 detail: format!("unknown URI scheme: {}", s),
             }),
@@ -558,12 +570,16 @@ mod tests {
     fn test_uri_scheme_display() {
         assert_eq!(UriScheme::Sip.to_string(), "sip");
         assert_eq!(UriScheme::Sips.to_string(), "sips");
+        assert_eq!(UriScheme::SipWs.to_string(), "sip+ws");
+        assert_eq!(UriScheme::SipWss.to_string(), "sip+wss");
     }
 
     #[test]
     fn test_uri_scheme_from_str() {
         assert!(matches!("sip".parse::<UriScheme>(), Ok(UriScheme::Sip)));
         assert!(matches!("SIPS".parse::<UriScheme>(), Ok(UriScheme::Sips)));
+        assert!(matches!("sip+ws".parse::<UriScheme>(), Ok(UriScheme::SipWs)));
+        assert!(matches!("SIP+WSS".parse::<UriScheme>(), Ok(UriScheme::SipWss)));
         assert!("http".parse::<UriScheme>().is_err());
     }
 

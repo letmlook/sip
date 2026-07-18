@@ -782,7 +782,9 @@ mod tests {
         );
         headers.insert(
             HeaderName::CallId,
-            HeaderValue::CallId(siprs_message::CallId("test-call-id@example.com".to_string())),
+            HeaderValue::CallId(siprs_message::CallId(
+                "test-call-id@example.com".to_string(),
+            )),
         );
         headers.insert(
             HeaderName::CSeq,
@@ -835,7 +837,9 @@ mod tests {
         );
         headers.insert(
             HeaderName::CallId,
-            HeaderValue::CallId(siprs_message::CallId("test-call-id@example.com".to_string())),
+            HeaderValue::CallId(siprs_message::CallId(
+                "test-call-id@example.com".to_string(),
+            )),
         );
         headers.insert(
             HeaderName::CSeq,
@@ -887,7 +891,9 @@ mod tests {
         );
         headers.insert(
             HeaderName::CallId,
-            HeaderValue::CallId(siprs_message::CallId("test-call-id@example.com".to_string())),
+            HeaderValue::CallId(siprs_message::CallId(
+                "test-call-id@example.com".to_string(),
+            )),
         );
         headers.insert(
             HeaderName::CSeq,
@@ -1163,7 +1169,9 @@ mod tests {
         );
         headers.insert(
             HeaderName::CallId,
-            HeaderValue::CallId(siprs_message::CallId("test-call-id@example.com".to_string())),
+            HeaderValue::CallId(siprs_message::CallId(
+                "test-call-id@example.com".to_string(),
+            )),
         );
         headers.insert(
             HeaderName::CSeq,
@@ -1232,7 +1240,9 @@ mod tests {
         );
         headers.insert(
             HeaderName::CallId,
-            HeaderValue::CallId(siprs_message::CallId("test-call-id@example.com".to_string())),
+            HeaderValue::CallId(siprs_message::CallId(
+                "test-call-id@example.com".to_string(),
+            )),
         );
         headers.insert(
             HeaderName::CSeq,

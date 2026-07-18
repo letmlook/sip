@@ -19,10 +19,10 @@
 //! - [`siprs_gb28181_xml`] - GB28181 XML message processing for device catalog, control, and queries
 
 // Re-export all sub-crates for convenient access
-pub use siprs_gb28181_codec;
-pub use siprs_gb28181_xml;
 pub use siprs_core;
 pub use siprs_dialog;
+pub use siprs_gb28181_codec;
+pub use siprs_gb28181_xml;
 pub use siprs_message;
 pub use siprs_registration;
 pub use siprs_sdp;
