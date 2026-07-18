@@ -578,8 +578,14 @@ mod tests {
     fn test_uri_scheme_from_str() {
         assert!(matches!("sip".parse::<UriScheme>(), Ok(UriScheme::Sip)));
         assert!(matches!("SIPS".parse::<UriScheme>(), Ok(UriScheme::Sips)));
-        assert!(matches!("sip+ws".parse::<UriScheme>(), Ok(UriScheme::SipWs)));
-        assert!(matches!("SIP+WSS".parse::<UriScheme>(), Ok(UriScheme::SipWss)));
+        assert!(matches!(
+            "sip+ws".parse::<UriScheme>(),
+            Ok(UriScheme::SipWs)
+        ));
+        assert!(matches!(
+            "SIP+WSS".parse::<UriScheme>(),
+            Ok(UriScheme::SipWss)
+        ));
         assert!("http".parse::<UriScheme>().is_err());
     }
 
