@@ -1,5 +1,5 @@
 [package]
-name = "sip"
+name = "siprs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,20 +10,21 @@ keywords.workspace = true
 categories.workspace = true
 readme.workspace = true
 homepage.workspace = true
+exclude = [".arts/*", ".github/*"]
 
 [workspace]
 resolver = "2"
 members = [
-    "crates/sip-core",
-    "crates/sip-message",
-    "crates/sip-transport",
-    "crates/sip-transaction",
-    "crates/sip-dialog",
-    "crates/sip-registration",
-    "crates/sip-ua",
-    "crates/sip-sdp",
-    "crates/gb28181-codec",
-    "crates/gb28181-xml",
+    "crates/siprs-core",
+    "crates/siprs-message",
+    "crates/siprs-transport",
+    "crates/siprs-transaction",
+    "crates/siprs-dialog",
+    "crates/siprs-registration",
+    "crates/siprs-ua",
+    "crates/siprs-sdp",
+    "crates/siprs-gb28181-codec",
+    "crates/siprs-gb28181-xml",
     ".",  # Root crate: unified re-export of all sub-crates
 ]
 
@@ -79,25 +80,25 @@ tokio-test = "0.4"
 criterion = "0.5"
 
 # Internal crates
-sip-core = { version = "0.1.0", path = "crates/sip-core" }
-sip-message = { version = "0.1.0", path = "crates/sip-message" }
-sip-transport = { version = "0.1.0", path = "crates/sip-transport" }
-sip-transaction = { version = "0.1.0", path = "crates/sip-transaction" }
-sip-dialog = { version = "0.1.0", path = "crates/sip-dialog" }
-sip-registration = { version = "0.1.0", path = "crates/sip-registration" }
-sip-ua = { version = "0.1.0", path = "crates/sip-ua" }
-sip-sdp = { version = "0.1.0", path = "crates/sip-sdp" }
-gb28181-codec = { version = "0.1.0", path = "crates/gb28181-codec" }
-gb28181-xml = { version = "0.1.0", path = "crates/gb28181-xml" }
+siprs-core = { version = "0.1.0", path = "crates/siprs-core" }
+siprs-message = { version = "0.1.0", path = "crates/siprs-message" }
+siprs-transport = { version = "0.1.0", path = "crates/siprs-transport" }
+siprs-transaction = { version = "0.1.0", path = "crates/siprs-transaction" }
+siprs-dialog = { version = "0.1.0", path = "crates/siprs-dialog" }
+siprs-registration = { version = "0.1.0", path = "crates/siprs-registration" }
+siprs-ua = { version = "0.1.0", path = "crates/siprs-ua" }
+siprs-sdp = { version = "0.1.0", path = "crates/siprs-sdp" }
+siprs-gb28181-codec = { version = "0.1.0", path = "crates/siprs-gb28181-codec" }
+siprs-gb28181-xml = { version = "0.1.0", path = "crates/siprs-gb28181-xml" }
 
 [dependencies]
-sip-core.workspace = true
-sip-message.workspace = true
-sip-transport.workspace = true
-sip-transaction.workspace = true
-sip-dialog.workspace = true
-sip-registration.workspace = true
-sip-ua.workspace = true
-sip-sdp.workspace = true
-gb28181-codec.workspace = true
-gb28181-xml.workspace = true
+siprs-core.workspace = true
+siprs-message.workspace = true
+siprs-transport.workspace = true
+siprs-transaction.workspace = true
+siprs-dialog.workspace = true
+siprs-registration.workspace = true
+siprs-ua.workspace = true
+siprs-sdp.workspace = true
+siprs-gb28181-codec.workspace = true
+siprs-gb28181-xml.workspace = true

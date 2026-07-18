@@ -1,0 +1,40 @@
+[package]
+name = "siprs-ua"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SIP User Agent core with SipEngine, GB28181 device and platform support"
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+homepage.workspace = true
+
+[dependencies]
+siprs-core.workspace = true
+siprs-message.workspace = true
+siprs-transport.workspace = true
+siprs-transaction.workspace = true
+siprs-dialog.workspace = true
+siprs-registration.workspace = true
+siprs-sdp.workspace = true
+siprs-gb28181-codec.workspace = true
+siprs-gb28181-xml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+async-trait.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+tracing-subscriber.workspace = true
+
+[[bench]]
+name = "message_parser"
+harness = false
+
+[[bench]]
+name = "message_builder"
+harness = false

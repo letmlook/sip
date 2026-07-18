@@ -32,7 +32,7 @@ A full-featured SIP protocol stack written in Rust, compliant with RFC 3261, wit
                            │ SipEvent
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                       sip-ua (User Agent)                    │
+│                       siprs-ua (User Agent)                  │
 │  ┌──────┐ ┌──────┐ ┌──────────┐ ┌───────────┐ ┌─────────┐ │
 │  │ UAC  │ │ UAS  │ │ Dialog   │ │ Register  │ │ Subscr. │ │
 │  │      │ │      │ │ Manager  │ │ Manager   │ │ Manager │ │
@@ -44,13 +44,13 @@ A full-featured SIP protocol stack written in Rust, compliant with RFC 3261, wit
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   sip-dialog (Dialog Layer)                  │
+│                   siprs-dialog (Dialog Layer)                │
 │            Dialog ID management, early/confirmed state       │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                sip-transaction (Transaction Layer)           │
+│                siprs-transaction (Transaction Layer)         │
 │  ┌────────────┐ ┌────────────┐ ┌──────────┐ ┌───────────┐ │
 │  │ ICT (Inv.) │ │ NICT       │ │ IST      │ │ NIST      │ │
 │  │ Client     │ │ Client     │ │ Server   │ │ Server    │ │
@@ -60,27 +60,27 @@ A full-featured SIP protocol stack written in Rust, compliant with RFC 3261, wit
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                 sip-transport (Transport Layer)               │
+│                 siprs-transport (Transport Layer)             │
 │         UDP / TCP / TLS (rustls)   DNS Resolution            │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                 sip-message (Message Layer)                   │
+│                 siprs-message (Message Layer)                 │
 │       Request / Response parsing & building (RFC 3261)       │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   sip-core (Core Types)                      │
+│                   siprs-core (Core Types)                    │
 │       Error types, config, metrics, shared utilities         │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    GB28181 Extension Crates                   │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐│
-│  │ sip-sdp      │ │gb28181-codec │ │ gb28181-xml          ││
-│  │ SDP + GB     │ │ 20-digit     │ │ MANSCDP XML          ││
+│  │ siprs-sdp    │ │siprs-gb28181-│ │ siprs-gb28181-xml    ││
+│  │ SDP + GB     │ │codec 20-digit│ │ MANSCDP XML          ││
 │  │ extensions   │ │ encoding     │ │ parse & build        ││
 │  └──────────────┘ └──────────────┘ └──────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
@@ -94,20 +94,20 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sip-ua = "0.1"
+siprs-ua = "0.1"
 # Or use individual crates:
-# sip-message = "0.1"
-# sip-transport = "0.1"
-# sip-transaction = "0.1"
-# sip-dialog = "0.1"
-# sip-registration = "0.1"
+# siprs-message = "0.1"
+# siprs-transport = "0.1"
+# siprs-transaction = "0.1"
+# siprs-dialog = "0.1"
+# siprs-registration = "0.1"
 ```
 
 ### Basic Usage — SIP Registration
 
 ```rust
-use sip_ua::{SipEngine, SipEvent};
-use sip_core::config::SipConfig;
+use siprs_ua::{SipEngine, SipEvent};
+use siprs_core::config::SipConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -144,8 +144,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### GB28181 Device Example
 
 ```rust
-use sip_ua::gb28181::{Gb28181Device, Gb28181Config};
-use sip_core::config::SipConfig;
+use siprs_ua::gb28181::{Gb28181Device, Gb28181Config};
+use siprs_core::config::SipConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -174,8 +174,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### GB28181 Server Example
 
 ```rust
-use sip_ua::gb28181_server::{Gb28181Server, Gb28181ServerConfig};
-use sip_ua::device_registry::DeviceRegistry;
+use siprs_ua::gb28181_server::{Gb28181Server, Gb28181ServerConfig};
+use siprs_ua::device_registry::DeviceRegistry;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -200,16 +200,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Crate | Description |
 |-------|-------------|
-| [`sip-core`](./crates/sip-core) | Core types, error definitions, configuration, metrics, and shared utilities |
-| [`sip-message`](./crates/sip-message) | SIP message parsing and building (RFC 3261) — Request/Response, headers, URI |
-| [`sip-transport`](./crates/sip-transport) | Transport layer — UDP/TCP/TLS (rustls) with DNS resolution |
-| [`sip-transaction`](./crates/sip-transaction) | Transaction layer — 4 state machines (ICT/NICT/IST/NIST), Timer A-K |
-| [`sip-dialog`](./crates/sip-dialog) | Dialog layer — dialog ID management, early/confirmed state tracking |
-| [`sip-registration`](./crates/sip-registration) | Registration layer — client/server registration with MD5 digest auth |
-| [`sip-ua`](./crates/sip-ua) | User Agent — SipEngine, UAC/UAS, call control, event dispatch |
-| [`sip-sdp`](./crates/sip-sdp) | SDP parser/builder with GB28181 media extensions |
-| [`gb28181-codec`](./crates/gb28181-codec) | GB28181 20-digit national standard encoding — parse/validate/generate |
-| [`gb28181-xml`](./crates/gb28181-xml) | GB28181 XML (MANSCDP) message parsing and building |
+| [`siprs-core`](./crates/siprs-core) | Core types, error definitions, configuration, metrics, and shared utilities |
+| [`siprs-message`](./crates/siprs-message) | SIP message parsing and building (RFC 3261) — Request/Response, headers, URI |
+| [`siprs-transport`](./crates/siprs-transport) | Transport layer — UDP/TCP/TLS (rustls) with DNS resolution |
+| [`siprs-transaction`](./crates/siprs-transaction) | Transaction layer — 4 state machines (ICT/NICT/IST/NIST), Timer A-K |
+| [`siprs-dialog`](./crates/siprs-dialog) | Dialog layer — dialog ID management, early/confirmed state tracking |
+| [`siprs-registration`](./crates/siprs-registration) | Registration layer — client/server registration with MD5 digest auth |
+| [`siprs-ua`](./crates/siprs-ua) | User Agent — SipEngine, UAC/UAS, call control, event dispatch |
+| [`siprs-sdp`](./crates/siprs-sdp) | SDP parser/builder with GB28181 media extensions |
+| [`siprs-gb28181-codec`](./crates/siprs-gb28181-codec) | GB28181 20-digit national standard encoding — parse/validate/generate |
+| [`siprs-gb28181-xml`](./crates/siprs-gb28181-xml) | GB28181 XML (MANSCDP) message parsing and building |
 
 ## 🇨🇳 GB28181 Support
 

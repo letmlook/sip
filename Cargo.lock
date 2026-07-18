@@ -424,22 +424,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gb28181-codec"
-version = "0.1.0"
-dependencies = [
- "sip-core",
- "thiserror",
-]
-
-[[package]]
-name = "gb28181-xml"
-version = "0.1.0"
-dependencies = [
- "gb28181-codec",
- "thiserror",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1132,23 +1116,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "sip"
+name = "siprs"
 version = "0.1.0"
 dependencies = [
- "gb28181-codec",
- "gb28181-xml",
- "sip-core",
- "sip-dialog",
- "sip-message",
- "sip-registration",
- "sip-sdp",
- "sip-transaction",
- "sip-transport",
- "sip-ua",
+ "siprs-core",
+ "siprs-dialog",
+ "siprs-gb28181-codec",
+ "siprs-gb28181-xml",
+ "siprs-message",
+ "siprs-registration",
+ "siprs-sdp",
+ "siprs-transaction",
+ "siprs-transport",
+ "siprs-ua",
 ]
 
 [[package]]
-name = "sip-core"
+name = "siprs-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -1158,64 +1142,80 @@ dependencies = [
 ]
 
 [[package]]
-name = "sip-dialog"
+name = "siprs-dialog"
 version = "0.1.0"
 dependencies = [
- "sip-core",
- "sip-message",
- "sip-transaction",
+ "siprs-core",
+ "siprs-message",
+ "siprs-transaction",
  "tokio",
  "tracing",
 ]
 
 [[package]]
-name = "sip-message"
+name = "siprs-gb28181-codec"
+version = "0.1.0"
+dependencies = [
+ "siprs-core",
+ "thiserror",
+]
+
+[[package]]
+name = "siprs-gb28181-xml"
+version = "0.1.0"
+dependencies = [
+ "siprs-gb28181-codec",
+ "thiserror",
+]
+
+[[package]]
+name = "siprs-message"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "sip-core",
+ "siprs-core",
  "thiserror",
  "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "sip-registration"
+name = "siprs-registration"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "hmac",
  "md-5",
- "sip-core",
- "sip-message",
- "sip-transaction",
+ "siprs-core",
+ "siprs-message",
+ "siprs-transaction",
  "tokio",
  "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "sip-sdp"
+name = "siprs-sdp"
 version = "0.1.0"
 dependencies = [
- "sip-core",
+ "siprs-core",
  "thiserror",
 ]
 
 [[package]]
-name = "sip-transaction"
+name = "siprs-transaction"
 version = "0.1.0"
 dependencies = [
- "sip-core",
- "sip-message",
- "sip-transport",
+ "siprs-core",
+ "siprs-message",
+ "siprs-transport",
  "tokio",
  "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "sip-transport"
+name = "siprs-transport"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -1223,8 +1223,8 @@ dependencies = [
  "futures",
  "rustls",
  "rustls-pki-types",
- "sip-core",
- "sip-message",
+ "siprs-core",
+ "siprs-message",
  "tokio",
  "tokio-rustls",
  "tokio-test",
@@ -1235,20 +1235,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "sip-ua"
+name = "siprs-ua"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "criterion",
- "gb28181-codec",
- "gb28181-xml",
- "sip-core",
- "sip-dialog",
- "sip-message",
- "sip-registration",
- "sip-sdp",
- "sip-transaction",
- "sip-transport",
+ "siprs-core",
+ "siprs-dialog",
+ "siprs-gb28181-codec",
+ "siprs-gb28181-xml",
+ "siprs-message",
+ "siprs-registration",
+ "siprs-sdp",
+ "siprs-transaction",
+ "siprs-transport",
  "tokio",
  "tracing",
  "tracing-subscriber",

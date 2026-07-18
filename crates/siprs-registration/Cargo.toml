@@ -1,0 +1,23 @@
+[package]
+name = "siprs-registration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SIP registration with MD5 digest authentication and registrar server"
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+homepage.workspace = true
+
+[dependencies]
+siprs-core.workspace = true
+siprs-message.workspace = true
+siprs-transaction.workspace = true
+md-5.workspace = true
+hmac.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+async-trait.workspace = true

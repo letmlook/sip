@@ -1,0 +1,19 @@
+[package]
+name = "siprs-dialog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SIP dialog management with route set and in-dialog request support"
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+homepage.workspace = true
+
+[dependencies]
+siprs-core.workspace = true
+siprs-message.workspace = true
+siprs-transaction.workspace = true
+tokio.workspace = true
+tracing.workspace = true
