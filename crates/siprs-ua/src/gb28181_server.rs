@@ -1978,7 +1978,10 @@ fn extract_device_id_from_aor(aor: &str) -> String {
 /// 格式为 `sip:device_id@ip:port`，提取 ip 和 port 部分。
 fn parse_contact_uri(contact: &str) -> (String, u16) {
     let without_scheme = contact.strip_prefix("sip:").unwrap_or(contact);
-    let after_at = without_scheme.split('@').next_back().unwrap_or(without_scheme);
+    let after_at = without_scheme
+        .split('@')
+        .next_back()
+        .unwrap_or(without_scheme);
 
     if let Some(colon_pos) = after_at.rfind(':') {
         let ip = after_at[..colon_pos].to_string();
