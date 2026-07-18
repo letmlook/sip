@@ -7,6 +7,8 @@
 //! - **Query** - 查询消息（设备目录查询、设备信息查询、录像查询等）
 //! - **Response** - 响应消息（设备目录响应、录像查询响应、报警通知等）
 //! - **Control** - 控制消息（云台控制、远程启动、录像拖动等）
+//! - **Notify** - 通知消息（心跳保活、报警通知、移动位置通知等）
+//! - **CascadingRegister** - 级联注册消息（上下级平台注册）
 //!
 //! # 示例
 //!
@@ -78,13 +80,17 @@
 //! let xml = control.to_xml();
 //! ```
 
+pub mod cascading;
 pub mod control;
+pub mod notify;
 pub mod query;
 pub mod response;
 pub mod types;
 
 // 重导出核心类型，方便使用
+pub use cascading::CascadingRegisterXml;
 pub use control::{build_ptz_cmd, Control, PtzDirection, PtzSpeed};
+pub use notify::Notify;
 pub use query::Query;
 pub use response::Response;
 pub use types::{
@@ -100,6 +106,15 @@ pub fn parse_xml(xml: &str) -> Result<Message, XmlError> {
         "Query" => Query::from_xml(xml).map(Message::Query),
         "Response" => Response::from_xml(xml).map(Message::Response),
         "Control" => Control::from_xml(xml).map(Message::Control),
+        "Notify" => Notify::from_xml(xml).map(Message::Notify),
+        "Command" => {
+            // 尝试解析为级联注册消息
+            if let Ok(cascading) = CascadingRegisterXml::from_xml(xml) {
+                Ok(Message::CascadingRegister(cascading))
+            } else {
+                Err(XmlError::UnknownRoot("Command".to_string()))
+            }
+        }
         other => Err(XmlError::UnknownRoot(other.to_string())),
     }
 }
@@ -113,6 +128,10 @@ pub enum Message {
     Response(Response),
     /// 控制消息
     Control(Control),
+    /// 通知消息（心跳、报警、移动位置等）
+    Notify(Notify),
+    /// 级联注册消息
+    CascadingRegister(CascadingRegisterXml),
 }
 
 #[cfg(test)]
@@ -183,6 +202,50 @@ mod tests {
         let xml = "<Unknown><CmdType>Catalog</CmdType></Unknown>";
         let result = parse_xml(xml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_xml_notify() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Notify>
+  <CmdType>Keepalive</CmdType>
+  <SN>1</SN>
+  <DeviceID>34020000001320000001</DeviceID>
+  <Status>OK</Status>
+</Notify>"#;
+
+        let msg = parse_xml(xml).unwrap();
+        match msg {
+            Message::Notify(n) => {
+                assert_eq!(n.cmd_type, CmdType::Keepalive);
+                assert_eq!(n.sn, 1);
+                assert_eq!(n.status.as_deref(), Some("OK"));
+            }
+            _ => panic!("expected Notify"),
+        }
+    }
+
+    #[test]
+    fn test_parse_xml_cascading_register() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Command>
+  <CmdType>CascadingRegister</CmdType>
+  <SN>1</SN>
+  <DeviceID>34020000002000000001</DeviceID>
+  <ServerID>34020000002000000002</ServerID>
+  <ServerDomain>3402000000</ServerDomain>
+  <ServerIP>192.168.1.2</ServerIP>
+  <ServerPort>5060</ServerPort>
+</Command>"#;
+
+        let msg = parse_xml(xml).unwrap();
+        match msg {
+            Message::CascadingRegister(c) => {
+                assert_eq!(c.sn, 1);
+                assert_eq!(c.server_id, "34020000002000000002");
+            }
+            _ => panic!("expected CascadingRegister"),
+        }
     }
 
     #[test]

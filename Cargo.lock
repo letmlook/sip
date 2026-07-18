@@ -1313,6 +1313,7 @@ dependencies = [
  "siprs-dialog",
  "siprs-gb28181-codec",
  "siprs-gb28181-xml",
+ "siprs-media",
  "siprs-message",
  "siprs-registration",
  "siprs-sdp",
@@ -1355,6 +1356,16 @@ name = "siprs-gb28181-xml"
 version = "0.1.0"
 dependencies = [
  "siprs-gb28181-codec",
+ "thiserror",
+]
+
+[[package]]
+name = "siprs-media"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "siprs-core",
+ "siprs-sdp",
  "thiserror",
 ]
 

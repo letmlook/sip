@@ -9,8 +9,11 @@
 //! - 心跳超时检测（自动标记离线）
 //! - 设备信息更新（从 DeviceInfo 响应）
 //! - 设备目录更新（从 Catalog 响应）
+//! - 设备位置管理（从移动位置通知更新）
+//! - 级联平台管理（上下级平台信息）
+//! - 订阅状态管理（目录/报警/移动位置订阅）
 //! - 设备树构建与查询
-//! - 事件通知（上线/离线/注册/注销/目录更新）
+//! - 事件通知（上线/离线/注册/注销/目录更新/位置更新）
 //!
 //! # 架构
 //!
@@ -55,6 +58,119 @@ use siprs_gb28181_xml::DeviceItem;
 use tokio::sync::{mpsc, Mutex};
 
 // ============================================================================
+// DevicePosition - 设备位置信息
+// ============================================================================
+
+/// 设备位置信息
+///
+/// 记录设备的 GPS 位置，包括经度、纬度、海拔、速度、方向和上报时间。
+/// 从移动位置通知（MobilePositionNotify）中更新。
+#[derive(Debug, Clone, PartialEq)]
+pub struct DevicePosition {
+    /// 经度
+    pub longitude: f64,
+    /// 纬度
+    pub latitude: f64,
+    /// 海拔（米）
+    pub altitude: Option<f64>,
+    /// 速度（km/h）
+    pub speed: Option<f64>,
+    /// 方向（0-360度，正北为0）
+    pub direction: Option<f64>,
+    /// 上报时间（格式: 2024-01-01T12:00:00）
+    pub report_time: String,
+    /// 接收时间（本地时间戳）
+    pub received_at: Instant,
+}
+
+impl DevicePosition {
+    /// 创建设备位置信息
+    pub fn new(longitude: f64, latitude: f64, report_time: impl Into<String>) -> Self {
+        Self {
+            longitude,
+            latitude,
+            altitude: None,
+            speed: None,
+
+            direction: None,
+            report_time: report_time.into(),
+            received_at: Instant::now(),
+        }
+    }
+}
+
+// ============================================================================
+// CascadingPlatformInfo - 级联平台信息
+// ============================================================================
+
+/// 级联平台信息
+///
+/// 记录上级或下级平台的连接信息，用于多级联场景。
+#[derive(Debug, Clone, PartialEq)]
+pub struct CascadingPlatformInfo {
+    /// 平台国标编码（20位）
+    pub platform_id: String,
+    /// 平台域名
+    pub domain: String,
+    /// 平台 SIP IP
+    pub sip_ip: String,
+    /// 平台 SIP 端口
+    pub sip_port: u16,
+    /// 平台类型（upstream=上级, downstream=下级）
+    pub direction: CascadingDirection,
+    /// 注册时间
+    pub registered_at: Instant,
+    /// 是否在线
+    pub online: bool,
+}
+
+/// 级联方向
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CascadingDirection {
+    /// 上级平台
+    Upstream,
+    /// 下级平台
+    Downstream,
+}
+
+impl std::fmt::Display for CascadingDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CascadingDirection::Upstream => write!(f, "upstream"),
+            CascadingDirection::Downstream => write!(f, "downstream"),
+        }
+    }
+}
+
+// ============================================================================
+// SubscriptionStateInfo - 订阅状态信息
+// ============================================================================
+
+/// 订阅状态信息
+///
+/// 记录对某个设备的订阅状态（目录/报警/移动位置等）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubscriptionStateInfo {
+    /// 订阅标识
+    pub subscription_id: String,
+    /// 事件类型（如 "Catalog"、"Alarm"、"MobilePosition"）
+    pub event: String,
+    /// 订阅有效期（秒）
+    pub expires: u64,
+    /// 订阅创建时间
+    pub created_at: Instant,
+    /// 是否活跃
+    pub active: bool,
+}
+
+impl SubscriptionStateInfo {
+    /// 判断订阅是否已过期
+    pub fn is_expired(&self) -> bool {
+        self.created_at.elapsed().as_secs() > self.expires
+    }
+}
+
+// ============================================================================
 // DeviceOnlineStatus - 设备在线状态
 // ============================================================================
 
@@ -86,7 +202,8 @@ impl std::fmt::Display for DeviceOnlineStatus {
 /// 注册设备信息
 ///
 /// 保存一次 GB28181 设备注册的完整上下文信息，包括设备编码、
-/// SIP 联系地址、在线状态、心跳时间、设备描述和子设备列表。
+/// SIP 联系地址、在线状态、心跳时间、设备描述、子设备列表、
+/// 位置信息、级联平台和订阅状态。
 #[derive(Debug, Clone)]
 pub struct RegisteredDevice {
     /// 设备国标编码（20位）
@@ -121,6 +238,12 @@ pub struct RegisteredDevice {
     pub longitude: Option<f64>,
     /// 纬度
     pub latitude: Option<f64>,
+    /// 设备位置信息（从移动位置通知更新）
+    pub position: Option<DevicePosition>,
+    /// 级联平台信息（下级平台列表）
+    pub cascading_platforms: Vec<CascadingPlatformInfo>,
+    /// 订阅状态列表
+    pub subscriptions: Vec<SubscriptionStateInfo>,
 }
 
 impl RegisteredDevice {
@@ -166,6 +289,12 @@ pub enum DeviceRegistryEvent {
     DeviceUnregistered { device_id: String },
     /// 设备目录更新
     DeviceCatalogUpdated { device_id: String, count: usize },
+    /// 设备位置更新
+    DevicePositionUpdated { device_id: String },
+    /// 级联平台注册
+    CascadingPlatformRegistered { platform_id: String },
+    /// 级联平台注销
+    CascadingPlatformUnregistered { platform_id: String },
 }
 
 // ============================================================================
@@ -346,6 +475,9 @@ impl DeviceRegistry {
                 sub_devices: Vec::new(),
                 longitude: None,
                 latitude: None,
+                position: None,
+                cascading_platforms: Vec::new(),
+                subscriptions: Vec::new(),
             };
             devices.insert(device_id.to_string(), device);
         }
@@ -697,6 +829,352 @@ impl DeviceRegistry {
     pub fn set_heartbeat_timeout(&mut self, timeout: u64) {
         self.heartbeat_timeout = timeout;
     }
+
+    // ========================================================================
+    // 位置管理
+    // ========================================================================
+
+    /// 更新设备位置信息
+    ///
+    /// 从移动位置通知中更新设备的 GPS 位置。
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 设备国标编码
+    /// - `position` - 设备位置信息
+    ///
+    /// # 返回
+    ///
+    /// 如果设备存在则返回 `true`，否则返回 `false`。
+    pub async fn update_position(&self, device_id: &str, position: DevicePosition) -> bool {
+        let mut devices = self.devices.lock().await;
+
+        if let Some(device) = devices.get_mut(device_id) {
+            device.longitude = Some(position.longitude);
+            device.latitude = Some(position.latitude);
+            device.position = Some(position);
+
+            let _ = self
+                .event_tx
+                .send(DeviceRegistryEvent::DevicePositionUpdated {
+                    device_id: device_id.to_string(),
+                });
+
+            tracing::info!(
+                "DeviceRegistry: updated position for {} (lon={}, lat={})",
+                device_id,
+                device.longitude.unwrap_or_default(),
+                device.latitude.unwrap_or_default()
+            );
+            true
+        } else {
+            tracing::warn!(
+                "DeviceRegistry: position update for unknown device {}",
+                device_id
+            );
+            false
+        }
+    }
+
+    /// 获取设备位置信息
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 设备国标编码
+    pub async fn get_position(&self, device_id: &str) -> Option<DevicePosition> {
+        let devices = self.devices.lock().await;
+        devices.get(device_id).and_then(|d| d.position.clone())
+    }
+
+    // ========================================================================
+    // 级联平台管理
+    // ========================================================================
+
+    /// 添加级联平台
+    ///
+    /// 注册上级或下级平台信息。
+    ///
+    /// # 参数
+    ///
+    /// - `platform_id` - 平台国标编码
+    /// - `domain` - 平台域名
+    /// - `sip_ip` - 平台 SIP IP
+    /// - `sip_port` - 平台 SIP 端口
+    /// - `direction` - 级联方向（Upstream/Downstream）
+    ///
+    /// # 返回
+    ///
+    /// 如果添加成功返回 `true`。
+    pub async fn add_cascading_platform(
+        &self,
+        platform_id: &str,
+        domain: &str,
+        sip_ip: &str,
+        sip_port: u16,
+        direction: CascadingDirection,
+    ) -> bool {
+        let mut devices = self.devices.lock().await;
+
+        // 查找是否已存在该平台
+        let existing = devices.get_mut(platform_id);
+        if let Some(device) = existing {
+            // 更新已有平台的级联信息
+            if let Some(pos) = device
+                .cascading_platforms
+                .iter_mut()
+                .find(|p| p.platform_id == platform_id && p.direction == direction)
+            {
+                pos.domain = domain.to_string();
+                pos.sip_ip = sip_ip.to_string();
+                pos.sip_port = sip_port;
+                pos.online = true;
+                pos.registered_at = Instant::now();
+            } else {
+                device.cascading_platforms.push(CascadingPlatformInfo {
+                    platform_id: platform_id.to_string(),
+                    domain: domain.to_string(),
+                    sip_ip: sip_ip.to_string(),
+                    sip_port,
+                    direction,
+                    registered_at: Instant::now(),
+                    online: true,
+                });
+            }
+        } else {
+            // 创建新的平台设备记录
+            let now = Instant::now();
+            let device = RegisteredDevice {
+                device_id: platform_id.to_string(),
+                contact: format!("sip:{}@{}:{}", platform_id, sip_ip, sip_port),
+                server_addr: format!("{}:{}", sip_ip, sip_port),
+                status: DeviceOnlineStatus::Online,
+                registered_at: now,
+                last_keepalive: now,
+                expires: 3600,
+                call_id: String::new(),
+                name: None,
+                manufacturer: None,
+                model: None,
+                ip_address: Some(sip_ip.to_string()),
+                port: Some(sip_port),
+                sub_devices: Vec::new(),
+                longitude: None,
+                latitude: None,
+                position: None,
+                cascading_platforms: vec![CascadingPlatformInfo {
+                    platform_id: platform_id.to_string(),
+                    domain: domain.to_string(),
+                    sip_ip: sip_ip.to_string(),
+                    sip_port,
+                    direction,
+                    registered_at: now,
+                    online: true,
+                }],
+                subscriptions: Vec::new(),
+            };
+            devices.insert(platform_id.to_string(), device);
+        }
+
+        let _ = self
+            .event_tx
+            .send(DeviceRegistryEvent::CascadingPlatformRegistered {
+                platform_id: platform_id.to_string(),
+            });
+
+        tracing::info!(
+            "DeviceRegistry: added cascading platform {} ({})",
+            platform_id,
+            direction
+        );
+        true
+    }
+
+    /// 移除级联平台
+    ///
+    /// # 参数
+    ///
+    /// - `platform_id` - 平台国标编码
+    ///
+    /// # 返回
+    ///
+    /// 如果平台存在并被移除则返回 `true`。
+    pub async fn remove_cascading_platform(&self, platform_id: &str) -> bool {
+        let mut devices = self.devices.lock().await;
+
+        if let Some(device) = devices.get_mut(platform_id) {
+            device
+                .cascading_platforms
+                .retain(|p| p.platform_id != platform_id);
+        }
+
+        let _ = self
+            .event_tx
+            .send(DeviceRegistryEvent::CascadingPlatformUnregistered {
+                platform_id: platform_id.to_string(),
+            });
+
+        tracing::info!("DeviceRegistry: removed cascading platform {}", platform_id);
+        true
+    }
+
+    /// 获取所有下级平台
+    pub async fn list_downstream_platforms(&self) -> Vec<CascadingPlatformInfo> {
+        let devices = self.devices.lock().await;
+        let mut result = Vec::new();
+        for device in devices.values() {
+            for platform in &device.cascading_platforms {
+                if platform.direction == CascadingDirection::Downstream && platform.online {
+                    result.push(platform.clone());
+                }
+            }
+        }
+        result
+    }
+
+    /// 获取所有上级平台
+    pub async fn list_upstream_platforms(&self) -> Vec<CascadingPlatformInfo> {
+        let devices = self.devices.lock().await;
+        let mut result = Vec::new();
+        for device in devices.values() {
+            for platform in &device.cascading_platforms {
+                if platform.direction == CascadingDirection::Upstream && platform.online {
+                    result.push(platform.clone());
+                }
+            }
+        }
+        result
+    }
+
+    // ========================================================================
+    // 订阅状态管理
+    // ========================================================================
+
+    /// 添加订阅状态
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 设备国标编码
+    /// - `subscription_id` - 订阅标识
+    /// - `event` - 事件类型
+    /// - `expires` - 订阅有效期（秒）
+    ///
+    /// # 返回
+    ///
+    /// 如果设备存在则返回 `true`。
+    pub async fn add_subscription(
+        &self,
+        device_id: &str,
+        subscription_id: &str,
+        event: &str,
+        expires: u64,
+    ) -> bool {
+        let mut devices = self.devices.lock().await;
+
+        if let Some(device) = devices.get_mut(device_id) {
+            // 检查是否已存在相同订阅
+            if device
+                .subscriptions
+                .iter()
+                .any(|s| s.subscription_id == subscription_id)
+            {
+                return true; // 已存在
+            }
+
+            device.subscriptions.push(SubscriptionStateInfo {
+                subscription_id: subscription_id.to_string(),
+                event: event.to_string(),
+                expires,
+                created_at: Instant::now(),
+                active: true,
+            });
+
+            tracing::info!(
+                "DeviceRegistry: added subscription {} for device {} (event={})",
+                subscription_id,
+                device_id,
+                event
+            );
+            true
+        } else {
+            tracing::warn!(
+                "DeviceRegistry: subscription for unknown device {}",
+                device_id
+            );
+            false
+        }
+    }
+
+    /// 移除订阅状态
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 设备国标编码
+    /// - `subscription_id` - 订阅标识
+    pub async fn remove_subscription(&self, device_id: &str, subscription_id: &str) -> bool {
+        let mut devices = self.devices.lock().await;
+
+        if let Some(device) = devices.get_mut(device_id) {
+            let before = device.subscriptions.len();
+            device
+                .subscriptions
+                .retain(|s| s.subscription_id != subscription_id);
+            let removed = device.subscriptions.len() < before;
+
+            if removed {
+                tracing::info!(
+                    "DeviceRegistry: removed subscription {} for device {}",
+                    subscription_id,
+                    device_id
+                );
+            }
+            removed
+        } else {
+            false
+        }
+    }
+
+    /// 获取设备的活跃订阅列表
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 设备国标编码
+    pub async fn get_subscriptions(&self, device_id: &str) -> Vec<SubscriptionStateInfo> {
+        let devices = self.devices.lock().await;
+        devices
+            .get(device_id)
+            .map(|d| {
+                d.subscriptions
+                    .iter()
+                    .filter(|s| s.active)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 按事件类型获取设备的订阅
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 设备国标编码
+    /// - `event` - 事件类型
+    pub async fn get_subscriptions_by_event(
+        &self,
+        device_id: &str,
+        event: &str,
+    ) -> Vec<SubscriptionStateInfo> {
+        let devices = self.devices.lock().await;
+        devices
+            .get(device_id)
+            .map(|d| {
+                d.subscriptions
+                    .iter()
+                    .filter(|s| s.active && s.event.eq_ignore_ascii_case(event))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 // ============================================================================
@@ -749,6 +1227,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         // 刚注册，剩余时间应接近 3600
@@ -776,6 +1257,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         assert!(device.is_expired());
@@ -801,6 +1285,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         assert!(device.is_keepalive_timeout(180));
@@ -1034,6 +1521,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         {
@@ -1071,6 +1561,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         {
@@ -1111,6 +1604,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         {
@@ -1366,6 +1862,9 @@ mod tests {
             sub_devices: Vec::new(),
             longitude: None,
             latitude: None,
+            position: None,
+            cascading_platforms: Vec::new(),
+            subscriptions: Vec::new(),
         };
 
         {
@@ -1692,5 +2191,376 @@ mod tests {
         root.children.push(child);
 
         assert_eq!(root.total_count(), 4);
+    }
+
+    // ── 设备位置管理测试 ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_update_position() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        let position = DevicePosition::new(116.397, 39.908, "2024-01-01T12:00:00");
+        let result = registry
+            .update_position("34020000001320000001", position)
+            .await;
+        assert!(result);
+
+        let device = registry.get_device("34020000001320000001").await.unwrap();
+        assert_eq!(device.longitude, Some(116.397));
+        assert_eq!(device.latitude, Some(39.908));
+        assert!(device.position.is_some());
+        let pos = device.position.unwrap();
+        assert!((pos.longitude - 116.397).abs() < f64::EPSILON);
+        assert!((pos.latitude - 39.908).abs() < f64::EPSILON);
+        assert_eq!(pos.report_time, "2024-01-01T12:00:00");
+    }
+
+    #[tokio::test]
+    async fn test_update_position_unknown_device() {
+        let registry = make_registry();
+        let position = DevicePosition::new(116.397, 39.908, "2024-01-01T12:00:00");
+        let result = registry.update_position("unknown", position).await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_get_position() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        // 未设置位置时返回 None
+        let pos = registry.get_position("34020000001320000001").await;
+        assert!(pos.is_none());
+
+        // 设置位置后返回 Some
+        let position = DevicePosition::new(116.397, 39.908, "2024-01-01T12:00:00");
+        registry
+            .update_position("34020000001320000001", position)
+            .await;
+        let pos = registry.get_position("34020000001320000001").await;
+        assert!(pos.is_some());
+        assert!((pos.unwrap().longitude - 116.397).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_position_update_event() {
+        let mut registry = make_registry();
+        let mut event_rx = registry.event_stream().unwrap();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        // 消费注册事件
+        let _ = event_rx.recv().await; // DeviceRegistered
+        let _ = event_rx.recv().await; // DeviceOnline
+
+        let position = DevicePosition::new(116.397, 39.908, "2024-01-01T12:00:00");
+        registry
+            .update_position("34020000001320000001", position)
+            .await;
+
+        let event = event_rx.recv().await.unwrap();
+        assert!(matches!(
+            event,
+            DeviceRegistryEvent::DevicePositionUpdated { ref device_id }
+            if device_id == "34020000001320000001"
+        ));
+    }
+
+    // ── 级联平台管理测试 ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_add_cascading_platform() {
+        let registry = make_registry();
+
+        let result = registry
+            .add_cascading_platform(
+                "34020000002000000002",
+                "3402000000",
+                "192.168.1.2",
+                5060,
+                CascadingDirection::Downstream,
+            )
+            .await;
+        assert!(result);
+
+        let device = registry.get_device("34020000002000000002").await;
+        assert!(device.is_some());
+        let device = device.unwrap();
+        assert_eq!(device.cascading_platforms.len(), 1);
+        assert_eq!(
+            device.cascading_platforms[0].platform_id,
+            "34020000002000000002"
+        );
+        assert_eq!(
+            device.cascading_platforms[0].direction,
+            CascadingDirection::Downstream
+        );
+        assert!(device.cascading_platforms[0].online);
+    }
+
+    #[tokio::test]
+    async fn test_list_downstream_platforms() {
+        let registry = make_registry();
+
+        registry
+            .add_cascading_platform(
+                "34020000002000000002",
+                "3402000000",
+                "192.168.1.2",
+                5060,
+                CascadingDirection::Downstream,
+            )
+            .await;
+
+        registry
+            .add_cascading_platform(
+                "34020000002000000003",
+                "3402000000",
+                "192.168.1.3",
+                5060,
+                CascadingDirection::Upstream,
+            )
+            .await;
+
+        let downstream = registry.list_downstream_platforms().await;
+        assert_eq!(downstream.len(), 1);
+        assert_eq!(downstream[0].platform_id, "34020000002000000002");
+
+        let upstream = registry.list_upstream_platforms().await;
+        assert_eq!(upstream.len(), 1);
+        assert_eq!(upstream[0].platform_id, "34020000002000000003");
+    }
+
+    #[tokio::test]
+    async fn test_remove_cascading_platform() {
+        let registry = make_registry();
+
+        registry
+            .add_cascading_platform(
+                "34020000002000000002",
+                "3402000000",
+                "192.168.1.2",
+                5060,
+                CascadingDirection::Downstream,
+            )
+            .await;
+
+        let result = registry
+            .remove_cascading_platform("34020000002000000002")
+            .await;
+        assert!(result);
+
+        let device = registry.get_device("34020000002000000002").await;
+        assert!(device.is_some());
+        assert!(device.unwrap().cascading_platforms.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cascading_direction_display() {
+        assert_eq!(CascadingDirection::Upstream.to_string(), "upstream");
+        assert_eq!(CascadingDirection::Downstream.to_string(), "downstream");
+    }
+
+    // ── 订阅状态管理测试 ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_add_subscription() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        let result = registry
+            .add_subscription("34020000001320000001", "sub-001", "Catalog", 3600)
+            .await;
+        assert!(result);
+
+        let device = registry.get_device("34020000001320000001").await.unwrap();
+        assert_eq!(device.subscriptions.len(), 1);
+        assert_eq!(device.subscriptions[0].subscription_id, "sub-001");
+        assert_eq!(device.subscriptions[0].event, "Catalog");
+        assert!(device.subscriptions[0].active);
+    }
+
+    #[tokio::test]
+    async fn test_add_subscription_duplicate() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        registry
+            .add_subscription("34020000001320000001", "sub-001", "Catalog", 3600)
+            .await;
+        registry
+            .add_subscription("34020000001320000001", "sub-001", "Catalog", 3600)
+            .await;
+
+        let device = registry.get_device("34020000001320000001").await.unwrap();
+        assert_eq!(device.subscriptions.len(), 1); // 不应重复添加
+    }
+
+    #[tokio::test]
+    async fn test_remove_subscription() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        registry
+            .add_subscription("34020000001320000001", "sub-001", "Catalog", 3600)
+            .await;
+        registry
+            .add_subscription("34020000001320000001", "sub-002", "Alarm", 3600)
+            .await;
+
+        let result = registry
+            .remove_subscription("34020000001320000001", "sub-001")
+            .await;
+        assert!(result);
+
+        let device = registry.get_device("34020000001320000001").await.unwrap();
+        assert_eq!(device.subscriptions.len(), 1);
+        assert_eq!(device.subscriptions[0].subscription_id, "sub-002");
+    }
+
+    #[tokio::test]
+    async fn test_get_subscriptions() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        registry
+            .add_subscription("34020000001320000001", "sub-001", "Catalog", 3600)
+            .await;
+        registry
+            .add_subscription("34020000001320000001", "sub-002", "Alarm", 3600)
+            .await;
+
+        let subs = registry.get_subscriptions("34020000001320000001").await;
+        assert_eq!(subs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_subscriptions_by_event() {
+        let registry = make_registry();
+
+        registry
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        registry
+            .add_subscription("34020000001320000001", "sub-001", "Catalog", 3600)
+            .await;
+        registry
+            .add_subscription("34020000001320000001", "sub-002", "Alarm", 3600)
+            .await;
+        registry
+            .add_subscription("34020000001320000001", "sub-003", "Catalog", 7200)
+            .await;
+
+        let catalog_subs = registry
+            .get_subscriptions_by_event("34020000001320000001", "Catalog")
+            .await;
+        assert_eq!(catalog_subs.len(), 2);
+
+        let alarm_subs = registry
+            .get_subscriptions_by_event("34020000001320000001", "Alarm")
+            .await;
+        assert_eq!(alarm_subs.len(), 1);
+    }
+
+    #[test]
+    fn test_subscription_state_info_is_expired() {
+        let info = SubscriptionStateInfo {
+            subscription_id: "sub-001".to_string(),
+            event: "Catalog".to_string(),
+            expires: 3600,
+            created_at: Instant::now(),
+            active: true,
+        };
+        assert!(!info.is_expired());
+
+        let expired_info = SubscriptionStateInfo {
+            subscription_id: "sub-002".to_string(),
+            event: "Catalog".to_string(),
+            expires: 0,
+            created_at: Instant::now() - std::time::Duration::from_secs(1),
+            active: true,
+        };
+        assert!(expired_info.is_expired());
+    }
+
+    #[test]
+    fn test_device_position_new() {
+        let pos = DevicePosition::new(116.397, 39.908, "2024-01-01T12:00:00");
+        assert!((pos.longitude - 116.397).abs() < f64::EPSILON);
+        assert!((pos.latitude - 39.908).abs() < f64::EPSILON);
+        assert!(pos.altitude.is_none());
+        assert!(pos.speed.is_none());
+        assert!(pos.direction.is_none());
+        assert_eq!(pos.report_time, "2024-01-01T12:00:00");
     }
 }

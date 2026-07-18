@@ -160,6 +160,24 @@ pub enum Gb28181Event {
     KeepaliveOk,
     /// 心跳超时
     KeepaliveTimeout,
+    /// 收到移动位置订阅请求
+    MobilePositionSubscribe {
+        /// 命令序号
+        sn: u32,
+        /// 目标设备编码
+        device_id: String,
+        /// 订阅有效期（秒）
+        expires: u64,
+    },
+    /// 收到目录订阅请求
+    CatalogSubscribe {
+        /// 命令序号
+        sn: u32,
+        /// 目标设备编码
+        device_id: String,
+        /// 订阅有效期（秒）
+        expires: u64,
+    },
 }
 
 // ============================================================================
@@ -578,6 +596,126 @@ impl Gb28181Device {
         tracing::info!("Gb28181Device: hung up (call_id={})", cid);
 
         Ok(())
+    }
+
+    // ========================================================================
+    // 移动位置上报
+    // ========================================================================
+
+    /// 上报移动位置信息
+    ///
+    /// 构建 MobilePositionNotify XML 并通过 MESSAGE 发送。
+    ///
+    /// # 参数
+    ///
+    /// - `longitude` - 经度
+    /// - `latitude` - 纬度
+    /// - `altitude` - 海拔（可选）
+    /// - `speed` - 速度（可选）
+    /// - `direction` - 方向（可选）
+    /// - `report_time` - 上报时间（ISO 8601 格式）
+    pub async fn report_mobile_position(
+        &self,
+        longitude: f64,
+        latitude: f64,
+        altitude: Option<f64>,
+        speed: Option<f64>,
+        direction: Option<f64>,
+        report_time: &str,
+    ) -> Result<(), String> {
+        let sn = self.next_sn().await;
+
+        // 构建 MobilePositionInfo
+        let mut pos = siprs_gb28181_xml::MobilePositionInfo::new(
+            &self.config.device_id,
+            longitude,
+            latitude,
+            report_time,
+        );
+        pos.altitude = altitude;
+        pos.speed = speed;
+        pos.direction = direction;
+
+        // 构建 Notify XML
+        let device_id_obj = siprs_gb28181_codec::DeviceId::parse(&self.config.device_id)
+            .map_err(|e| format!("invalid device_id: {}", e))?;
+
+        let notify =
+            siprs_gb28181_xml::Notify::mobile_position_notify(sn, device_id_obj, vec![pos]);
+        let xml = notify.to_xml();
+
+        // 构建 MESSAGE 请求
+        let request = self.build_message_request(&xml).await;
+
+        // 通过传输层发送
+        let target = format!(
+            "sip:{}@{}:{}",
+            self.config.device_id, self.config.server_addr, self.config.server_port
+        );
+
+        self.engine
+            .lock()
+            .await
+            .send_request(&request, &target)
+            .await
+            .map_err(|e| format!("failed to send mobile position: {}", e))?;
+
+        tracing::info!(
+            "Gb28181Device: reported mobile position (lon={}, lat={}, sn={})",
+            longitude,
+            latitude,
+            sn
+        );
+
+        Ok(())
+    }
+
+    /// 处理移动位置订阅请求
+    ///
+    /// 当收到平台端的 SUBSCRIBE MobilePosition 请求时调用此方法。
+    /// 应用层应通过事件接收器获取 `MobilePositionSubscribe` 事件，
+    /// 然后周期性调用 `report_mobile_position` 上报位置。
+    ///
+    /// # 参数
+    ///
+    /// - `sn` - 命令序号
+    /// - `device_id` - 目标设备编码
+    /// - `expires` - 订阅有效期（秒）
+    pub fn handle_mobile_position_subscribe(&self, sn: u32, device_id: &str, expires: u64) {
+        let _ = self.event_tx.send(Gb28181Event::MobilePositionSubscribe {
+            sn,
+            device_id: device_id.to_string(),
+            expires,
+        });
+
+        tracing::info!(
+            "Gb28181Device: received mobile position subscribe (sn={}, expires={}s)",
+            sn,
+            expires
+        );
+    }
+
+    /// 处理目录订阅请求
+    ///
+    /// 当收到平台端的 SUBSCRIBE Catalog 请求时调用此方法。
+    ///
+    /// # 参数
+    ///
+    /// - `sn` - 命令序号
+    /// - `device_id` - 目标设备编码
+    /// - `expires` - 订阅有效期（秒）
+    pub fn handle_catalog_subscribe(&self, sn: u32, device_id: &str, expires: u64) {
+        let _ = self.event_tx.send(Gb28181Event::CatalogSubscribe {
+            sn,
+            device_id: device_id.to_string(),
+            expires,
+        });
+
+        tracing::info!(
+            "Gb28181Device: received catalog subscribe (sn={}, expires={}s)",
+            sn,
+            expires
+        );
     }
 
     /// 获取事件接收器
@@ -1073,5 +1211,61 @@ mod tests {
         let device = Gb28181Device::new(config);
         assert_eq!(device.config().server_addr, "192.168.1.1");
         assert_eq!(device.config().server_port, 5060);
+    }
+
+    // ── 移动位置上报测试 ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_report_mobile_position_without_engine() {
+        let config = make_test_config();
+        let device = Gb28181Device::new(config);
+
+        let result = device
+            .report_mobile_position(
+                116.397,
+                39.908,
+                Some(50.0),
+                Some(60.5),
+                Some(180.0),
+                "2024-01-01T12:00:00",
+            )
+            .await;
+        assert!(result.is_err()); // 引擎未启动
+    }
+
+    #[test]
+    fn test_mobile_position_subscribe_event() {
+        let event = Gb28181Event::MobilePositionSubscribe {
+            sn: 1,
+            device_id: "34020000001320000001".to_string(),
+            expires: 3600,
+        };
+        assert!(format!("{:?}", event).contains("MobilePositionSubscribe"));
+    }
+
+    #[test]
+    fn test_catalog_subscribe_event() {
+        let event = Gb28181Event::CatalogSubscribe {
+            sn: 2,
+            device_id: "34020000001320000001".to_string(),
+            expires: 3600,
+        };
+        assert!(format!("{:?}", event).contains("CatalogSubscribe"));
+    }
+
+    #[test]
+    fn test_handle_mobile_position_subscribe() {
+        let config = make_test_config();
+        let device = Gb28181Device::new(config);
+        // 不会 panic 即可
+        device.handle_mobile_position_subscribe(1, "34020000001320000001", 3600);
+    }
+
+    #[test]
+    fn test_handle_catalog_subscribe() {
+        let config = make_test_config();
+        let device = Gb28181Device::new(config);
+        // 不会 panic 即可
+        device.handle_catalog_subscribe(2, "34020000001320000001", 3600);
     }
 }

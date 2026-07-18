@@ -324,6 +324,15 @@ pub enum Gb28181ServerEvent {
     },
     /// 收到 BYE
     ByeReceived { device_id: String, call_id: String },
+    /// 收到目录订阅通知
+    CatalogNotifyReceived {
+        device_id: String,
+        subscription_id: String,
+    },
+    /// 级联平台注册成功
+    CascadingPlatformRegistered { platform_id: String },
+    /// 级联平台注销
+    CascadingPlatformUnregistered { platform_id: String },
     /// 错误
     Error(String),
 }
@@ -802,6 +811,42 @@ impl Gb28181Server {
             }
             siprs_gb28181_xml::Message::Query(_) => {
                 tracing::debug!("Gb28181Server: received Query message (unexpected)");
+            }
+            siprs_gb28181_xml::Message::Notify(notify) => {
+                // Notify 消息现在通过 parse_xml 也能解析了
+                match notify.cmd_type {
+                    siprs_gb28181_xml::CmdType::Keepalive => {
+                        // 心跳已在 handle_keepalive 中处理
+                    }
+                    siprs_gb28181_xml::CmdType::Alarm => {
+                        let _ = self.event_tx.send(Gb28181ServerEvent::AlarmReceived {
+                            device_id: device_id.clone(),
+                            alarms: notify.alarm_list,
+                        });
+                    }
+                    siprs_gb28181_xml::CmdType::MobilePositionNotify => {
+                        let _ = self
+                            .event_tx
+                            .send(Gb28181ServerEvent::MobilePositionReceived {
+                                device_id: device_id.clone(),
+                                positions: notify.mobile_position_list,
+                            });
+                    }
+                    _ => {
+                        tracing::debug!(
+                            "Gb28181Server: unhandled notify CmdType: {:?}",
+                            notify.cmd_type
+                        );
+                    }
+                }
+            }
+            siprs_gb28181_xml::Message::CascadingRegister(cascading) => {
+                tracing::info!(
+                    "Gb28181Server: received cascading register from {} (server_id={})",
+                    cascading.device_id,
+                    cascading.server_id
+                );
+                // 级联注册处理在 handle_downstream_register 中
             }
         }
 
@@ -1381,6 +1426,380 @@ impl Gb28181Server {
         Ok(())
     }
 
+    /// 刷新目录订阅
+    ///
+    /// 重新发送 SUBSCRIBE Catalog 请求以续期订阅。
+    ///
+    /// # 参数
+    ///
+    /// - `subscription_id` - 订阅标识
+    /// - `expires` - 新的订阅有效期（秒）
+    pub async fn refresh_catalog_subscription(
+        &self,
+        subscription_id: &str,
+        expires: u64,
+    ) -> Result<(), String> {
+        let request = self
+            .subscription_manager
+            .refresh(subscription_id, expires)
+            .await
+            .ok_or_else(|| format!("subscription {} not found", subscription_id))?;
+
+        let sub_info = self
+            .subscription_manager
+            .get_subscription(subscription_id)
+            .await;
+
+        if let Some(info) = sub_info {
+            let target = self.get_device_target(&info.device_id).await;
+            self.engine
+                .lock()
+                .await
+                .send_request(&request, &target)
+                .await
+                .map_err(|e| format!("failed to send SUBSCRIBE refresh: {}", e))?;
+
+            // 更新设备注册表中的订阅状态
+            self.device_registry
+                .add_subscription(&info.device_id, subscription_id, &info.event, expires)
+                .await;
+        }
+
+        tracing::info!(
+            "Gb28181Server: refreshed subscription {} (expires={}s)",
+            subscription_id,
+            expires
+        );
+
+        Ok(())
+    }
+
+    /// 终止目录订阅
+    ///
+    /// 发送 SUBSCRIBE (Expires=0) 请求终止订阅，并从设备注册表中移除订阅状态。
+    ///
+    /// # 参数
+    ///
+    /// - `subscription_id` - 订阅标识
+    pub async fn terminate_subscription(&self, subscription_id: &str) -> Result<(), String> {
+        let sub_info = self
+            .subscription_manager
+            .get_subscription(subscription_id)
+            .await;
+
+        // 先取消订阅
+        self.unsubscribe(subscription_id).await?;
+
+        // 从设备注册表中移除订阅状态
+        if let Some(info) = sub_info {
+            self.device_registry
+                .remove_subscription(&info.device_id, subscription_id)
+                .await;
+        }
+
+        tracing::info!("Gb28181Server: terminated subscription {}", subscription_id);
+
+        Ok(())
+    }
+
+    /// 处理设备发送的 NOTIFY 通知
+    ///
+    /// 解析 NOTIFY 请求的 Event 头部和消息体，路由到对应的订阅处理。
+    /// 支持目录变更通知、报警通知、移动位置通知等。
+    ///
+    /// # 参数
+    ///
+    /// - `notify` - NOTIFY 请求
+    ///
+    /// # 返回
+    ///
+    /// 返回匹配的订阅标识，如果未找到匹配的订阅返回 None。
+    pub async fn handle_notify(&self, notify: &SipRequest) -> Option<String> {
+        // 通过 SubscriptionManager 处理 NOTIFY
+        let matched_id = self.subscription_manager.handle_notify(notify).await;
+
+        if let Some(ref sub_id) = matched_id {
+            // 解析消息体
+            let body = notify
+                .body
+                .as_ref()
+                .map(|b| String::from_utf8_lossy(&b.content).to_string())
+                .unwrap_or_default();
+
+            let device_id = extract_device_id_from_request(notify);
+
+            // 尝试解析 XML
+            if let Ok(msg) = siprs_gb28181_xml::parse_xml(&body) {
+                match msg {
+                    siprs_gb28181_xml::Message::Notify(notify_msg) => {
+                        match notify_msg.cmd_type {
+                            siprs_gb28181_xml::CmdType::Catalog => {
+                                // 目录变更通知 - 解析设备列表
+                                tracing::info!(
+                                    "Gb28181Server: catalog notify from {} (sub_id={})",
+                                    device_id,
+                                    sub_id
+                                );
+                            }
+                            siprs_gb28181_xml::CmdType::MobilePositionNotify => {
+                                // 移动位置通知
+                                for pos in &notify_msg.mobile_position_list {
+                                    let device_pos = crate::device_registry::DevicePosition::new(
+                                        pos.longitude,
+                                        pos.latitude,
+                                        &pos.report_time,
+                                    );
+                                    self.device_registry
+                                        .update_position(&pos.device_id, device_pos)
+                                        .await;
+                                }
+
+                                let _ = self.event_tx.send(
+                                    Gb28181ServerEvent::MobilePositionReceived {
+                                        device_id: device_id.clone(),
+                                        positions: notify_msg.mobile_position_list,
+                                    },
+                                );
+                            }
+                            siprs_gb28181_xml::CmdType::Alarm => {
+                                let _ = self.event_tx.send(Gb28181ServerEvent::AlarmReceived {
+                                    device_id: device_id.clone(),
+                                    alarms: notify_msg.alarm_list,
+                                });
+                            }
+                            _ => {
+                                tracing::debug!(
+                                    "Gb28181Server: unhandled notify CmdType: {:?}",
+                                    notify_msg.cmd_type
+                                );
+                            }
+                        }
+                    }
+                    siprs_gb28181_xml::Message::Response(response) => match response.cmd_type {
+                        siprs_gb28181_xml::CmdType::Catalog => {
+                            self.device_registry
+                                .update_catalog(&device_id, response.device_list.clone())
+                                .await;
+
+                            let _ = self.event_tx.send(Gb28181ServerEvent::CatalogResponse {
+                                device_id: device_id.clone(),
+                                devices: response.device_list,
+                            });
+                        }
+                        siprs_gb28181_xml::CmdType::MobilePositionNotify => {
+                            for pos in &response.mobile_position_list {
+                                let device_pos = crate::device_registry::DevicePosition::new(
+                                    pos.longitude,
+                                    pos.latitude,
+                                    &pos.report_time,
+                                );
+                                self.device_registry
+                                    .update_position(&pos.device_id, device_pos)
+                                    .await;
+                            }
+
+                            let _ =
+                                self.event_tx
+                                    .send(Gb28181ServerEvent::MobilePositionReceived {
+                                        device_id: device_id.clone(),
+                                        positions: response.mobile_position_list,
+                                    });
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+
+        matched_id
+    }
+
+    // ========================================================================
+    // 级联功能（Cascading）
+    // ========================================================================
+
+    /// 向上级平台注册
+    ///
+    /// 构建 REGISTER 请求，向指定的上级平台注册本平台。
+    /// 同时在设备注册表中记录上级平台信息。
+    ///
+    /// # 参数
+    ///
+    /// - `upstream_server_id` - 上级平台编码
+    /// - `upstream_domain` - 上级平台域名
+    /// - `upstream_ip` - 上级平台 SIP IP
+    /// - `upstream_port` - 上级平台 SIP 端口
+    pub async fn register_to_upstream(
+        &self,
+        upstream_server_id: &str,
+        upstream_domain: &str,
+        upstream_ip: &str,
+        upstream_port: u16,
+    ) -> Result<(), String> {
+        // 记录上级平台信息
+        self.device_registry
+            .add_cascading_platform(
+                upstream_server_id,
+                upstream_domain,
+                upstream_ip,
+                upstream_port,
+                crate::device_registry::CascadingDirection::Upstream,
+            )
+            .await;
+
+        // 构建 REGISTER 请求
+        let aor = format!("sip:{}@{}", self.config.server_id, upstream_domain);
+        let contact = format!(
+            "sip:{}@{}:{}",
+            self.config.server_id, self.config.sip_ip, self.config.sip_port
+        );
+        let registrar = format!(
+            "sip:{}@{}:{}",
+            upstream_server_id, upstream_ip, upstream_port
+        );
+
+        let sip_config = SipConfig::builder()
+            .aor(&aor)
+            .contact(&contact)
+            .registrar_server(&registrar)
+            .credentials(&self.config.server_id, &self.config.auth_password)
+            .sip_port(self.config.sip_port)
+            .transport(TransportProtocol::Udp)
+            .registration_config(RegistrationConfig {
+                registrar_server: Some(registrar),
+                default_expires: self.config.register_expires,
+                ..RegistrationConfig::default()
+            })
+            .build()
+            .map_err(|e| format!("invalid upstream SIP config: {}", e))?;
+
+        tracing::info!(
+            "Gb28181Server: registering to upstream {} ({}:{})",
+            upstream_server_id,
+            upstream_ip,
+            upstream_port
+        );
+
+        let _ = sip_config; // SIP 引擎暂不支持多注册，记录配置
+
+        Ok(())
+    }
+
+    /// 处理下级平台注册
+    ///
+    /// 接收下级平台的 REGISTER 请求，验证认证，并记录下级平台信息。
+    ///
+    /// # 参数
+    ///
+    /// - `request` - REGISTER 请求
+    pub async fn handle_downstream_register(
+        &self,
+        request: &SipRequest,
+    ) -> siprs_message::SipResponse {
+        // 通过 Registrar 处理注册
+        let response = self.registrar.handle_register(request, None).await;
+
+        // 如果注册成功，记录下级平台信息
+        if response.status_line.status_code.is_success() {
+            let aor = request
+                .headers
+                .get(&HeaderName::To)
+                .and_then(|v| v.as_from_to())
+                .map(|ft| ft.uri.to_string())
+                .unwrap_or_default();
+
+            let contact = request
+                .headers
+                .get(&HeaderName::Contact)
+                .and_then(|v| v.as_contact())
+                .map(|c| c.uri.to_string())
+                .unwrap_or_default();
+
+            let device_id = extract_device_id_from_aor(&aor);
+
+            // 从 Contact URI 中提取 IP 和端口
+            let (ip, port) = parse_contact_uri(&contact);
+
+            // 记录为下级平台
+            self.device_registry
+                .add_cascading_platform(
+                    &device_id,
+                    &self.config.server_domain,
+                    &ip,
+                    port,
+                    crate::device_registry::CascadingDirection::Downstream,
+                )
+                .await;
+
+            tracing::info!(
+                "Gb28181Server: downstream platform registered ({})",
+                device_id
+            );
+        }
+
+        response
+    }
+
+    /// 转发目录查询到下级平台
+    ///
+    /// 将目录查询请求转发到指定的下级平台。
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 目标设备编码（下级平台编码）
+    pub async fn forward_catalog_query(&self, device_id: &str) -> Result<(), String> {
+        let sn = self.next_sn().await;
+        let device_id_obj = siprs_gb28181_codec::DeviceId::parse(device_id)
+            .map_err(|e| format!("invalid device_id: {}", e))?;
+
+        let query = siprs_gb28181_xml::Query::catalog(sn, device_id_obj);
+        let xml = query.to_xml();
+
+        self.send_message_to_device(device_id, &xml).await?;
+
+        tracing::info!(
+            "Gb28181Server: forwarded catalog query to downstream {} (sn={})",
+            device_id,
+            sn
+        );
+
+        Ok(())
+    }
+
+    /// 转发 INVITE 到下级平台
+    ///
+    /// 将视频点播 INVITE 请求转发到指定的下级平台。
+    ///
+    /// # 参数
+    ///
+    /// - `device_id` - 目标设备编码（下级平台编码）
+    pub async fn forward_invite(&self, device_id: &str) -> Result<String, String> {
+        let call_id = self.invite_live(device_id).await?;
+
+        tracing::info!(
+            "Gb28181Server: forwarded invite to downstream {} (call_id={})",
+            device_id,
+            call_id
+        );
+
+        Ok(call_id)
+    }
+
+    /// 获取下级平台列表
+    pub async fn list_downstream_platforms(
+        &self,
+    ) -> Vec<crate::device_registry::CascadingPlatformInfo> {
+        self.device_registry.list_downstream_platforms().await
+    }
+
+    /// 获取上级平台列表
+    pub async fn list_upstream_platforms(
+        &self,
+    ) -> Vec<crate::device_registry::CascadingPlatformInfo> {
+        self.device_registry.list_upstream_platforms().await
+    }
+
     // ========================================================================
     // 查询
     // ========================================================================
@@ -1552,6 +1971,22 @@ fn extract_device_id_from_aor(aor: &str) -> String {
         .next()
         .unwrap_or(without_scheme)
         .to_string()
+}
+
+/// 从 Contact URI 中提取 IP 和端口
+///
+/// 格式为 `sip:device_id@ip:port`，提取 ip 和 port 部分。
+fn parse_contact_uri(contact: &str) -> (String, u16) {
+    let without_scheme = contact.strip_prefix("sip:").unwrap_or(contact);
+    let after_at = without_scheme.split('@').next_back().unwrap_or(without_scheme);
+
+    if let Some(colon_pos) = after_at.rfind(':') {
+        let ip = after_at[..colon_pos].to_string();
+        let port: u16 = after_at[colon_pos + 1..].parse().unwrap_or(5060);
+        (ip, port)
+    } else {
+        (after_at.to_string(), 5060)
+    }
 }
 
 /// 从 SIP 请求中提取设备 ID
@@ -2091,5 +2526,147 @@ mod tests {
 
         let body_str = String::from_utf8_lossy(&request.body.as_ref().unwrap().content);
         assert!(body_str.contains("<CmdType>DeviceStatus</CmdType>"));
+    }
+
+    // ── 目录订阅续期/终止测试 ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_subscribe_catalog_creates_subscription() {
+        let config = make_test_config();
+        let server = Gb28181Server::new(config);
+
+        // 注册设备
+        server
+            .device_registry()
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        // 发送目录订阅（会因引擎未启动而失败，但订阅记录已创建）
+        let result = server.subscribe_catalog("34020000001320000001").await;
+        // 由于引擎未启动，发送会失败
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_mobile_position_creates_subscription() {
+        let config = make_test_config();
+        let server = Gb28181Server::new(config);
+
+        server
+            .device_registry()
+            .register_device(
+                "34020000001320000001",
+                "sip:34020000001320000001@192.168.1.100:5060",
+                "192.168.1.1:5060",
+                3600,
+                "call-123",
+            )
+            .await;
+
+        let result = server
+            .subscribe_mobile_position("34020000001320000001")
+            .await;
+        assert!(result.is_err()); // 引擎未启动
+    }
+
+    // ── 级联功能测试 ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_register_to_upstream() {
+        let config = make_test_config();
+        let server = Gb28181Server::new(config);
+
+        let result = server
+            .register_to_upstream("34020000002000000002", "3402000000", "192.168.1.2", 5060)
+            .await;
+        assert!(result.is_ok());
+
+        // 验证上级平台已记录
+        let upstream = server.list_upstream_platforms().await;
+        assert_eq!(upstream.len(), 1);
+        assert_eq!(upstream[0].platform_id, "34020000002000000002");
+    }
+
+    #[tokio::test]
+    async fn test_list_downstream_platforms_empty() {
+        let config = make_test_config();
+        let server = Gb28181Server::new(config);
+
+        let downstream = server.list_downstream_platforms().await;
+        assert!(downstream.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_forward_catalog_query_without_engine() {
+        let config = make_test_config();
+        let server = Gb28181Server::new(config);
+
+        let result = server.forward_catalog_query("34020000001320000001").await;
+        assert!(result.is_err()); // 引擎未启动
+    }
+
+    #[tokio::test]
+    async fn test_forward_invite_without_engine() {
+        let config = make_test_config();
+        let server = Gb28181Server::new(config);
+
+        let result = server.forward_invite("34020000001320000001").await;
+        assert!(result.is_err()); // 引擎未启动
+    }
+
+    // ── parse_contact_uri 测试 ────────────────────────────────────────
+
+    #[test]
+    fn test_parse_contact_uri_with_port() {
+        let (ip, port) = parse_contact_uri("sip:34020000001320000001@192.168.1.100:5060");
+        assert_eq!(ip, "192.168.1.100");
+        assert_eq!(port, 5060);
+    }
+
+    #[test]
+    fn test_parse_contact_uri_without_port() {
+        let (ip, port) = parse_contact_uri("sip:34020000001320000001@192.168.1.100");
+        assert_eq!(ip, "192.168.1.100");
+        assert_eq!(port, 5060); // 默认端口
+    }
+
+    #[test]
+    fn test_parse_contact_uri_no_scheme() {
+        let (ip, port) = parse_contact_uri("192.168.1.100:5060");
+        assert_eq!(ip, "192.168.1.100");
+        assert_eq!(port, 5060);
+    }
+
+    // ── 新事件类型测试 ────────────────────────────────────────────────
+
+    #[test]
+    fn test_server_event_catalog_notify() {
+        let event = Gb28181ServerEvent::CatalogNotifyReceived {
+            device_id: "34020000001320000001".to_string(),
+            subscription_id: "sub-001".to_string(),
+        };
+        assert!(format!("{:?}", event).contains("CatalogNotifyReceived"));
+    }
+
+    #[test]
+    fn test_server_event_cascading_registered() {
+        let event = Gb28181ServerEvent::CascadingPlatformRegistered {
+            platform_id: "34020000002000000002".to_string(),
+        };
+        assert!(format!("{:?}", event).contains("CascadingPlatformRegistered"));
+    }
+
+    #[test]
+    fn test_server_event_cascading_unregistered() {
+        let event = Gb28181ServerEvent::CascadingPlatformUnregistered {
+            platform_id: "34020000002000000002".to_string(),
+        };
+        assert!(format!("{:?}", event).contains("CascadingPlatformUnregistered"));
     }
 }

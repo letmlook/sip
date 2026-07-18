@@ -93,6 +93,6 @@ pub use gb28181_server::{
 
 // 重导出设备注册表核心类型
 pub use device_registry::{
-    DeviceOnlineStatus, DeviceRegistry, DeviceRegistryEvent, DeviceTree, DeviceTreeNode,
-    RegisteredDevice,
+    CascadingDirection, CascadingPlatformInfo, DeviceOnlineStatus, DevicePosition, DeviceRegistry,
+    DeviceRegistryEvent, DeviceTree, DeviceTreeNode, RegisteredDevice, SubscriptionStateInfo,
 };

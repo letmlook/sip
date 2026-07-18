@@ -18,6 +18,7 @@
 //! | [`siprs_registration`] | 注册层 — MD5 摘要认证、Registrar |
 //! | [`siprs_ua`] | 用户代理 — SipEngine、GB28181 设备/平台 |
 //! | [`siprs_sdp`] | SDP 解析/构建 + GB28181 媒体扩展 |
+//! | [`siprs_media`] | 媒体协商、RTP/RTCP 处理、编解码协商 |
 //! | [`siprs_gb28181_codec`] | GB28181 20 位国标编码解析/生成 |
 //! | [`siprs_gb28181_xml`] | GB28181 XML (MANSCDP) 消息处理 |
 //!
@@ -42,6 +43,7 @@ pub use siprs_core;
 pub use siprs_dialog;
 pub use siprs_gb28181_codec;
 pub use siprs_gb28181_xml;
+pub use siprs_media;
 pub use siprs_message;
 pub use siprs_registration;
 pub use siprs_sdp;

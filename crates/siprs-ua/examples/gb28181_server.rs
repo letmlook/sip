@@ -156,6 +156,21 @@ async fn main() {
                 Gb28181ServerEvent::ByeReceived { device_id, call_id } => {
                     println!("[事件] 📞 收到 BYE: {} (call_id={})", device_id, call_id);
                 }
+                Gb28181ServerEvent::CatalogNotifyReceived {
+                    device_id,
+                    subscription_id,
+                } => {
+                    println!(
+                        "[事件] 📋 收到目录订阅通知: {} (sub_id={})",
+                        device_id, subscription_id
+                    );
+                }
+                Gb28181ServerEvent::CascadingPlatformRegistered { platform_id } => {
+                    println!("[事件] 🔗 级联平台注册: {}", platform_id);
+                }
+                Gb28181ServerEvent::CascadingPlatformUnregistered { platform_id } => {
+                    println!("[事件] 🔗 级联平台注销: {}", platform_id);
+                }
                 Gb28181ServerEvent::Error(e) => {
                     eprintln!("[事件] ❌ 错误: {}", e);
                 }

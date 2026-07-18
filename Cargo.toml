@@ -23,6 +23,7 @@ members = [
     "crates/siprs-registration",
     "crates/siprs-ua",
     "crates/siprs-sdp",
+    "crates/siprs-media",
     "crates/siprs-gb28181-codec",
     "crates/siprs-gb28181-xml",
     ".",  # Root crate: unified re-export of all sub-crates
@@ -88,6 +89,7 @@ siprs-dialog = { version = "0.1.0", path = "crates/siprs-dialog" }
 siprs-registration = { version = "0.1.0", path = "crates/siprs-registration" }
 siprs-ua = { version = "0.1.0", path = "crates/siprs-ua" }
 siprs-sdp = { version = "0.1.0", path = "crates/siprs-sdp" }
+siprs-media = { version = "0.1.0", path = "crates/siprs-media" }
 siprs-gb28181-codec = { version = "0.1.0", path = "crates/siprs-gb28181-codec" }
 siprs-gb28181-xml = { version = "0.1.0", path = "crates/siprs-gb28181-xml" }
 
@@ -100,5 +102,6 @@ siprs-dialog.workspace = true
 siprs-registration.workspace = true
 siprs-ua.workspace = true
 siprs-sdp.workspace = true
+siprs-media.workspace = true
 siprs-gb28181-codec.workspace = true
 siprs-gb28181-xml.workspace = true

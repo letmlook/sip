@@ -120,6 +120,26 @@ async fn main() {
                         device_id, command
                     );
                 }
+                Gb28181Event::MobilePositionSubscribe {
+                    sn,
+                    device_id,
+                    expires,
+                } => {
+                    println!(
+                        "[事件] 📍 收到移动位置订阅 (SN={}, DeviceID={}, Expires={}s)",
+                        sn, device_id, expires
+                    );
+                }
+                Gb28181Event::CatalogSubscribe {
+                    sn,
+                    device_id,
+                    expires,
+                } => {
+                    println!(
+                        "[事件] 📋 收到目录订阅 (SN={}, DeviceID={}, Expires={}s)",
+                        sn, device_id, expires
+                    );
+                }
             }
         }
     });

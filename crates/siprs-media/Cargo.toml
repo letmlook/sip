@@ -1,0 +1,20 @@
+[package]
+name = "siprs-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Media negotiation, RTP/RTCP packet handling, and codec negotiation for SIP"
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+homepage.workspace = true
+
+[dependencies]
+siprs-core.workspace = true
+siprs-sdp.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
