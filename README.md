@@ -2,7 +2,7 @@
 
 **基于 Rust 的完整 SIP 协议栈 + GB28181 国标信令服务器**
 
-[![CI](https://github.com/sip-rs/sip/actions/workflows/ci.yml/badge.svg)](https://github.com/sip-rs/sip/actions/workflows/ci.yml)
+[![CI](https://github.com/letmlook/sip/actions/workflows/ci.yml/badge.svg)](https://github.com/letmlook/sip/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/siprs.svg)](https://crates.io/crates/siprs)
 [![Documentation](https://docs.rs/siprs/badge.svg)](https://docs.rs/siprs)
 [![Downloads](https://img.shields.io/crates/d/siprs.svg)](https://crates.io/crates/siprs)
