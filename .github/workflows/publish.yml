@@ -1,0 +1,119 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify tag matches version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "$TAG" != "$CARGO_VERSION" ]; then
+            echo "Tag version ($TAG) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "Publishing version $TAG"
+
+      - name: Publish siprs-core
+        run: cargo publish -p siprs-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-message
+        run: cargo publish -p siprs-message
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-sdp
+        run: cargo publish -p siprs-sdp
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-gb28181-codec
+        run: cargo publish -p siprs-gb28181-codec
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-transport
+        run: cargo publish -p siprs-transport
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-transaction
+        run: cargo publish -p siprs-transaction
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-gb28181-xml
+        run: cargo publish -p siprs-gb28181-xml
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-dialog
+        run: cargo publish -p siprs-dialog
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-registration
+        run: cargo publish -p siprs-registration
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-media
+        run: cargo publish -p siprs-media
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs-ua
+        run: cargo publish -p siprs-ua
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish siprs
+        run: cargo publish -p siprs
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
