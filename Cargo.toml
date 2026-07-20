@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
@@ -81,17 +81,17 @@ tokio-test = "0.4"
 criterion = "0.5"
 
 # Internal crates
-siprs-core = { version = "0.1.1", path = "crates/siprs-core" }
-siprs-message = { version = "0.1.1", path = "crates/siprs-message" }
-siprs-transport = { version = "0.1.1", path = "crates/siprs-transport" }
-siprs-transaction = { version = "0.1.1", path = "crates/siprs-transaction" }
-siprs-dialog = { version = "0.1.1", path = "crates/siprs-dialog" }
-siprs-registration = { version = "0.1.1", path = "crates/siprs-registration" }
-siprs-ua = { version = "0.1.1", path = "crates/siprs-ua" }
-siprs-sdp = { version = "0.1.1", path = "crates/siprs-sdp" }
-siprs-media = { version = "0.1.1", path = "crates/siprs-media" }
-siprs-gb28181-codec = { version = "0.1.1", path = "crates/siprs-gb28181-codec" }
-siprs-gb28181-xml = { version = "0.1.1", path = "crates/siprs-gb28181-xml" }
+siprs-core = { version = "0.1.2", path = "crates/siprs-core" }
+siprs-message = { version = "0.1.2", path = "crates/siprs-message" }
+siprs-transport = { version = "0.1.2", path = "crates/siprs-transport" }
+siprs-transaction = { version = "0.1.2", path = "crates/siprs-transaction" }
+siprs-dialog = { version = "0.1.2", path = "crates/siprs-dialog" }
+siprs-registration = { version = "0.1.2", path = "crates/siprs-registration" }
+siprs-ua = { version = "0.1.2", path = "crates/siprs-ua" }
+siprs-sdp = { version = "0.1.2", path = "crates/siprs-sdp" }
+siprs-media = { version = "0.1.2", path = "crates/siprs-media" }
+siprs-gb28181-codec = { version = "0.1.2", path = "crates/siprs-gb28181-codec" }
+siprs-gb28181-xml = { version = "0.1.2", path = "crates/siprs-gb28181-xml" }
 
 [dependencies]
 siprs-core.workspace = true
